@@ -148,11 +148,29 @@ function handleStart(type) {
       }
       console.log('❌ 请先配置.env文件中的 _302AI_API_KEY')
       break
+    case '302AI-KB':
+      if (env._302AI_API_KEY) {
+        return botStart()
+      }
+      console.log('❌ 请先配置.env文件中的 _302AI_API_KEY')
+      break
     case 'dify':
       if (env.DIFY_API_KEY && env.DIFY_URL) {
         return botStart()
       }
       console.log('❌ 请先配置.env文件中的 DIFY_API_KEY')
+      break
+    case 'Dify知识库':
+      if (env.DIFY_KB_API_KEY && env.DIFY_KB_URL) {
+        return botStart()
+      }
+      console.log('❌ 请先配置.env文件中的 DIFY_KB_API_KEY')
+      break
+    case 'dify-kb':
+      if (env.DIFY_KB_API_KEY && env.DIFY_KB_URL) {
+        return botStart()
+      }
+      console.log('❌ 请先配置.env文件中的 DIFY_KB_API_KEY 和 DIFY_KB_URL')
       break
     case 'ollama':
       if (env.OLLAMA_URL && env.OLLAMA_MODEL) {
@@ -160,7 +178,7 @@ function handleStart(type) {
       }
       break
     default:
-      console.log('❌ 服务类型错误, 目前支持： ChatGPT | Kimi | Xunfei | DIFY | OLLAMA')
+      console.log('❌ 服务类型错误, 目前支持： ChatGPT | Kimi | Xunfei | DIFY | Dify知识库 | OLLAMA')
   }
 }
 
@@ -170,8 +188,9 @@ export const serveList = [
   { name: 'Xunfei', value: 'Xunfei' },
   { name: 'deepseek-free', value: 'deepseek-free' },
   { name: '302AI', value: '302AI' },
+  { name: '302AI-知识库', value: '302AI-KB' },
   { name: 'dify', value: 'dify' },
-  // ... 欢迎大家接入更多的服务
+  { name: 'Dify知识库', value: 'dify-kb' },
   { name: 'ollama', value: 'ollama' },
 ]
 const questions = [

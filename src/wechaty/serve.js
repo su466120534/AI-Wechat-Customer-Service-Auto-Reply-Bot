@@ -3,8 +3,10 @@ import { getKimiReply } from '../kimi/index.js'
 import { getXunfeiReply } from '../xunfei/index.js'
 import { getDeepSeekFreeReply } from '../deepseek-free/index.js'
 import { get302AiReply } from '../302ai/index.js'
+import { get302AiKbReply } from '../302ai-kb/index.js'
 import { getDifyReply } from '../dify/index.js'
 import { getOllamaReply } from '../ollama/index.js'
+import { getDifyKbReply } from '../dify-kb/index.js'
 
 /**
  * 获取ai服务
@@ -23,10 +25,14 @@ export function getServe(serviceType) {
       return getDeepSeekFreeReply
     case '302AI':
       return get302AiReply
+    case '302AI-KB':
+      return get302AiKbReply
     case 'dify':
       return getDifyReply
     case 'ollama':
       return getOllamaReply
+    case 'dify-kb':
+      return getDifyKbReply
     default:
       return getGptReply
   }

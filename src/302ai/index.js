@@ -5,6 +5,7 @@ dotenv.config()
 const env = dotenv.config().parsed
 const key = env._302AI_API_KEY
 const model = env._302AI_MODEL ? env._302AI_MODEL : 'gpt-4o-mini'
+const systemMessage = env._302AI_SYSTEM_MESSAGE || '你是一个友好的中文助手，用简短随和的口吻交谈。'
 
 function setConfig(prompt) {
   return {
@@ -19,6 +20,10 @@ function setConfig(prompt) {
     data: JSON.stringify({
       model: model,
       messages: [
+        {
+          role: 'system',
+          content: systemMessage,
+        },
         {
           role: 'user',
           content: prompt,
