@@ -8,6 +8,7 @@ import fs from 'fs'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { defaultMessage } from './wechaty/sendMessage.js'
+import { initSchedule } from './wechaty/schedule.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -32,6 +33,9 @@ function onLogin(user) {
   const date = new Date()
   console.log(`Current time:${date}`)
   console.log(`Automatic robot chat mode has been activated`)
+
+  // 初始化定时任务
+  initSchedule(bot)
 }
 
 // 登出
