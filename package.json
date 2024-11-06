@@ -28,5 +28,6 @@
     "mac": {
       "target": ["dmg"]
     }
-  }
+  },
+  "type": "module"
 }

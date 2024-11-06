@@ -7,6 +7,7 @@ import { get302AiKbReply } from '../302ai-kb/index.js'
 import { getDifyReply } from '../dify/index.js'
 import { getOllamaReply } from '../ollama/index.js'
 import { getDifyKbReply } from '../dify-kb/index.js'
+import { getAitiwoReply } from '../aitiwo/index.js'
 
 /**
  * 获取ai服务
@@ -33,6 +34,8 @@ export function getServe(serviceType) {
       return getOllamaReply
     case 'dify-kb':
       return getDifyKbReply
+    case 'aitiwo':
+      return getAitiwoReply
     default:
       return getGptReply
   }

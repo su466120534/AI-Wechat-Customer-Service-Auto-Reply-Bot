@@ -7,6 +7,7 @@ import { getDeepSeekFreeReply } from '../deepseek-free/index.js'
 import { get302AiReply } from '../302ai/index.js'
 import { getDifyReply } from '../dify/index.js'
 import { getOllamaReply } from '../ollama/index.js'
+import { getAitiwoReply } from '../aitiwo/index.js'
 const env = dotenv.config().parsed // 环境参数
 
 // 控制启动
@@ -69,6 +70,14 @@ async function handleRequest(type) {
       }
       console.log('❌ 请先配置.env文件中的 OLLAMA_URL')
       break
+    case 'aitiwo':
+      if (env.AITIWO_URL && env.AITIWO_API_KEY) {
+        const message = await getAitiwoReply('hello')
+        console.log('🌸🌸🌸 / reply: ', message)
+        return
+      }
+      console.log('❌ 请先配置.env文件中的 AITIWO_URL 和 AITIWO_API_KEY')
+      break
     default:
       console.log('🚀服务类型错误')
   }
@@ -83,6 +92,7 @@ const serveList = [
   { name: 'dify', value: 'dify' },
   // ... 欢迎大家接入更多的服务
   { name: 'ollama', value: 'ollama' },
+  { name: 'aitiwo', value: 'aitiwo' },
 ]
 const questions = [
   {

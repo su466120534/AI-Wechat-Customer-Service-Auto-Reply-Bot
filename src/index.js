@@ -181,8 +181,14 @@ function handleStart(type) {
         return botStart()
       }
       break
+    case 'aitiwo':
+      if (env.AITIWO_URL && env.AITIWO_API_KEY) {
+        return botStart()
+      }
+      console.log('❌ 请先配置.env文件中的 AITIWO_URL 和 AITIWO_API_KEY')
+      break
     default:
-      console.log('❌ 服务类型错误, 目前支持： ChatGPT | Kimi | Xunfei | DIFY | Dify知识库 | OLLAMA')
+      console.log('❌ 服务类型错误, 目前支持： ChatGPT | Kimi | Xunfei | DIFY | Dify知识库 | OLLAMA | aitiwo')
   }
 }
 
@@ -196,6 +202,7 @@ export const serveList = [
   { name: 'dify', value: 'dify' },
   { name: 'Dify知识库', value: 'dify-kb' },
   { name: 'ollama', value: 'ollama' },
+  { name: 'aitiwo', value: 'aitiwo' },
 ]
 const questions = [
   {
