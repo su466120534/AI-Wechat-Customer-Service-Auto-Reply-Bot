@@ -8,7 +8,6 @@ import fs from 'fs'
 import path, { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { defaultMessage } from './wechaty/sendMessage.js'
-import { initSchedule } from './wechaty/schedule.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -33,9 +32,6 @@ function onLogin(user) {
   const date = new Date()
   console.log(`Current time:${date}`)
   console.log(`Automatic robot chat mode has been activated`)
-
-  // 初始化定时任务
-  initSchedule(bot)
 }
 
 // 登出
@@ -125,85 +121,20 @@ process.on('uncaughtException', (err) => {
 function handleStart(type) {
   serviceType = type
   console.log('🌸🌸🌸 / type: ', type)
-  switch (type) {
-    case 'ChatGPT':
-      if (env.OPENAI_API_KEY) return botStart()
-      console.log('❌ 请先配置.env文件中的 OPENAI_API_KEY')
-      break
-    case 'Kimi':
-      if (env.KIMI_API_KEY) return botStart()
-      console.log('❌ 请先配置.env文件中的 KIMI_API_KEY')
-      break
-    case 'Xunfei':
-      if (env.XUNFEI_APP_ID && env.XUNFEI_API_KEY && env.XUNFEI_API_SECRET) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 XUNFEI_APP_ID，XUNFEI_API_KEY，XUNFEI_API_SECRET')
-      break
-    case 'deepseek-free':
-      if (env.DEEPSEEK_FREE_URL && env.DEEPSEEK_FREE_TOKEN && env.DEEPSEEK_FREE_MODEL) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 XUNFEI_APP_ID，XUNFEI_API_KEY，XUNFEI_API_SECRET')
-      break
-    case '302AI':
-      if (env._302AI_API_KEY) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 _302AI_API_KEY')
-      break
-    case '302AI-KB':
-      if (env._302AI_API_KEY) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 _302AI_API_KEY')
-      break
-    case 'dify':
-      if (env.DIFY_API_KEY && env.DIFY_URL) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 DIFY_API_KEY')
-      break
-    case 'Dify知识库':
-      if (env.DIFY_KB_API_KEY && env.DIFY_KB_URL) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 DIFY_KB_API_KEY')
-      break
-    case 'dify-kb':
-      if (env.DIFY_KB_API_KEY && env.DIFY_KB_URL) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 DIFY_KB_API_KEY 和 DIFY_KB_URL')
-      break
-    case 'ollama':
-      if (env.OLLAMA_URL && env.OLLAMA_MODEL) {
-        return botStart()
-      }
-      break
-    case 'aitiwo':
-      if (env.AITIWO_URL && env.AITIWO_API_KEY) {
-        return botStart()
-      }
-      console.log('❌ 请先配置.env文件中的 AITIWO_URL 和 AITIWO_API_KEY')
-      break
-    default:
-      console.log('❌ 服务类型错误, 目前支持： ChatGPT | Kimi | Xunfei | DIFY | Dify知识库 | OLLAMA | aitiwo')
+  if (type === 'aitiwo') {
+    if (env.AITIWO_URL && env.AITIWO_API_KEY) {
+      return botStart()
+    }
+    console.log('❌ 请先配置.env文件中的 AITIWO_URL 和 AITIWO_API_KEY')
+  } else {
+    console.log('❌ 服务类型错误, 目前仅支持 aitiwo')
   }
 }
 
 export const serveList = [
-  { name: 'ChatGPT', value: 'ChatGPT' },
-  { name: 'Kimi', value: 'Kimi' },
-  { name: 'Xunfei', value: 'Xunfei' },
-  { name: 'deepseek-free', value: 'deepseek-free' },
-  { name: '302AI', value: '302AI' },
-  { name: '302AI-知识库', value: '302AI-KB' },
-  { name: 'dify', value: 'dify' },
-  { name: 'Dify知识库', value: 'dify-kb' },
-  { name: 'ollama', value: 'ollama' },
   { name: 'aitiwo', value: 'aitiwo' },
 ]
+
 const questions = [
   {
     type: 'list',
