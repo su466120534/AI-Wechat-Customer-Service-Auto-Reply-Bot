@@ -28,9 +28,20 @@ function setConfig(prompt) {
 export async function getAitiwoReply(prompt) {
   try {
     const config = setConfig(prompt)
-    console.log('🌸🌸🌸 请求配置:', JSON.stringify(config, null, 2))
+    const safeConfig = {
+      ...config,
+      headers: {
+        ...config.headers,
+        Authorization: '******'
+      }
+    }
+    console.log('🌸🌸🌸 请求配置:', JSON.stringify(safeConfig, null, 2))
     
-    const response = await axios(config)
+    const response = await axios({
+      ...config,
+      timeout: 30000
+    })
+    
     console.log('🌸🌸🌸 API响应:', response.data)
     
     if (response.data?.choices?.[0]?.message?.content) {
@@ -39,10 +50,18 @@ export async function getAitiwoReply(prompt) {
     
     return '抱歉，我暂时无法回答这个问题。'
   } catch (error) {
-    console.error('❌ 错误代码:', error.code)
-    console.error('❌ 错误信息:', error.message)
-    if (error.response) {
-      console.error('❌ 响应数据:', error.response.data)
+    console.error('❌ API请求失败:', {
+      code: error.code,
+      message: error.message,
+      status: error.response?.status,
+      statusText: error.response?.statusText
+    })
+    
+    if (error.code === 'ECONNABORTED') {
+      return '抱歉，服务响应超时，请稍后重试。'
+    }
+    if (error.response?.status === 504) {
+      return '抱歉，服务暂时不可用，请稍后再试。'
     }
     return '抱歉，服务出现了一些问题，请稍后再试。'
   }
