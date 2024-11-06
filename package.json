@@ -2,22 +2,98 @@
   "name": "wechat-bot-client",
   "version": "1.0.0",
   "description": "微信AI助手客户端",
-  "type": "module",
+  "main": "dist/main.js",
+  "type": "commonjs",
   "scripts": {
-    "dev": "node src/index.js",
-    "test:aitiwo": "node src/aitiwo/__test__.js"
+    "clean": "rimraf dist build",
+    "dev": "yarn build:ts && yarn copy-assets && cross-env NODE_ENV=development electron .",
+    "start": "cross-env NODE_ENV=production electron .",
+    "build:ts": "tsc && esbuild dist/renderer.js --bundle --outfile=dist/renderer.bundle.js --platform=browser --format=iife --external:electron --external:path --external:fs --external:util --external:log4js --external:node-schedule",
+    "build:electron": "electron-builder",
+    "build": "yarn clean && yarn build:ts && yarn copy-assets && yarn verify && yarn build:electron",
+    "build:win": "yarn clean && yarn build:ts && electron-builder --win",
+    "build:mac": "yarn clean && yarn build:ts && electron-builder --mac",
+    "build:linux": "yarn clean && yarn build:ts && electron-builder --linux",
+    "postinstall": "electron-builder install-app-deps",
+    "copy-assets": "node scripts/copy-assets.js",
+    "verify": "node scripts/verify-build.js"
   },
   "dependencies": {
     "axios": "^1.6.8",
+    "electron-updater": "^6.1.7",
+    "log4js": "^6.9.1",
+    "node-schedule": "^2.1.1",
+    "qrcode": "^1.5.3",
     "wechaty": "^1.20.2",
-    "wechaty-puppet-wechat4u": "^1.14.14",
-    "commander": "^10.0.1",
-    "dotenv": "^16.0.3",
-    "inquirer": "^9.2.12",
-    "qrcode-terminal": "^0.12.0",
-    "brolog": "^1.14.2",
-    "rxjs": "^7.8.1",
-    "@swc/core": "^1.3.100",
-    "wechaty-puppet": "^1.20.2"
+    "wechaty-puppet": "^1.20.2",
+    "wechaty-puppet-wechat4u": "^1.14.14"
+  },
+  "devDependencies": {
+    "@types/electron": "^1.6.10",
+    "@types/log4js": "^2.3.5",
+    "@types/node": "^18.19.0",
+    "@types/node-schedule": "^2.1.7",
+    "@types/qrcode": "^1.5.5",
+    "cross-env": "^7.0.3",
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1",
+    "esbuild": "^0.24.0",
+    "fs-extra": "^11.1.1",
+    "rimraf": "^5.0.5",
+    "ts-node": "^10.9.1",
+    "tsc-watch": "^6.0.4",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.wechat.bot.client",
+    "productName": "WeChat Bot Client",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "src",
+        "to": "app",
+        "filter": [
+          "*.html",
+          "*.css",
+          "js/*.js"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "build"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/wechat-bot-client.git"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

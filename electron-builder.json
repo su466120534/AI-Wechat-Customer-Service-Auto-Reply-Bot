@@ -1,0 +1,23 @@
+{
+  "appId": "com.wechat.bot.client",
+  "productName": "WeChat Bot Client",
+  "directories": {
+    "output": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json"
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "assets/icon.ico"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "assets/icon.icns"
+  },
+  "linux": {
+    "target": ["AppImage"],
+    "icon": "assets/icon.png"
+  }
+} 
