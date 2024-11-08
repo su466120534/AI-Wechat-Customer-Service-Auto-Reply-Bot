@@ -14,41 +14,28 @@ export class AitiwoService {
 
   async chat(message: string): Promise<string> {
     try {
-      return await retry(
-        async () => {
-          const response = await axios.post(
-            `${this.BASE_URL}/chat/completions`,
-            {
-              messages: [{ role: 'user', content: message }]
-            },
-            {
-              headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                'Authorization': this.apiKey
-              },
-              timeout: 30000
-            }
-          );
-
-          if (response.data?.choices?.[0]?.message?.content) {
-            return response.data.choices[0].message.content;
-          }
-          throw new AppError('AI 响应格式错误', ErrorCode.AI_RESPONSE_INVALID);
+      const response = await axios.post(
+        `${this.BASE_URL}/chat/completions`,
+        {
+          messages: [{ role: 'user', content: message }],
+          response_format: { type: "text" }
         },
         {
-          maxAttempts: 3,
-          delay: 2000,
-          shouldRetry: (error) => {
-            // 只重试网络错误和超时
-            return (
-              error.code === 'ECONNABORTED' ||
-              error.code === 'ETIMEDOUT' ||
-              (error.response?.status >= 500 && error.response?.status < 600)
-            );
-          }
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': this.apiKey
+          },
+          timeout: 30000
         }
       );
+
+      if (response.data?.choices?.[0]?.message?.content) {
+        let content = response.data.choices[0].message.content;
+        content = content.replace(/[`*_~]/g, '');
+        return content;
+      }
+      throw new AppError('AI 响应格式错误', ErrorCode.AI_RESPONSE_INVALID);
     } catch (error) {
       logger.error('Aitiwo', '聊天请求失败', error);
       throw new AppError(

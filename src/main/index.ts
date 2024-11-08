@@ -16,6 +16,7 @@ import { errorNotificationManager } from './utils/error-notification'
 import { errorMonitor } from './utils/error-monitor'
 import * as dotenv from 'dotenv';
 import { Message, Contact, Room } from 'wechaty';
+import { AitiwoService } from './services/aitiwo';
 
 // 在顶部声明 wechaty 相关的变量
 const wechaty = require('wechaty')
@@ -24,7 +25,7 @@ let botInstance: any = null;
 let qrcodeWindow: BrowserWindow | null = null;
 let isStarting = false;  // 添加启动状态标志
 
-// 在文件顶部添加消息类型枚举
+// 在文件顶部添加消类型枚举
 enum MessageType {
   Unknown = 0,
   Attachment = 1,
@@ -390,7 +391,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             const isAllowedRoom = room && config.roomWhitelist.includes(roomTopic);
 
             if (!isAllowedContact && !isAllowedRoom) {
-              logger.info('Bot', '消息来源不在白名单中，忽略', {
+              logger.info('Bot', '消息源不在白名单中，忽略', {
                 contact: talkerName,
                 room: roomTopic
               });
@@ -422,42 +423,41 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
 
             // 调用 AI 接口获取回复
             try {
-              const response = await callAIWithRetry(text, 3);
-
-              const replyMessage = response;
+              const response = await callAIWithRetry(text);
 
               // 发送回复
               if (room) {
-                await (room as any).say(replyMessage);
+                await room.say(response);
                 logger.info('Bot', '群聊回复成功', {
                   room: roomTopic,
-                  message: replyMessage
+                  message: response
                 });
               } else if (talker) {
-                await (talker as any).say(replyMessage);
+                await (talker as any).say(response);
                 logger.info('Bot', '私聊回复成功', {
                   contact: talkerName,
-                  message: replyMessage
+                  message: response
                 });
               }
 
             } catch (error) {
-              logger.error('Bot', 'AI 接口调用失败', error);
-              const errorMessage = '抱歉，我现在无法回复，请稍后再试';
-              
-              if (room) {
-                await (room as any).say(errorMessage);
-              } else if (talker) {
-                await (talker as any).say(errorMessage);
-              }
-              
-              // 记录错误详情
               logger.error('Bot', 'AI 回复失败', {
                 error: error instanceof Error ? error.message : '未知错误',
                 contact: talkerName,
                 room: roomTopic,
                 originalMessage: text
               });
+              
+              const errorMessage = '抱歉，我现在无法回复，请稍后再试';
+              try {
+                if (room) {
+                  await room.say(errorMessage);
+                } else if (talker) {
+                  await (talker as any).say(errorMessage);
+                }
+              } catch (sendError) {
+                logger.error('Bot', '发送错误消息失败', sendError);
+              }
             }
 
           } catch (error) {
@@ -915,7 +915,7 @@ async function getBotInstance(config: any): Promise<any> {
       return botInstance;
     }
 
-    // 如果���例存在且已登录，直接返回
+    // 如果例存在且已登录，直接返回
     if (botInstance && await checkBotStatus()) {
       logger.info('Bot', '使用现有登录状态');
       return botInstance;
@@ -1064,18 +1064,13 @@ async function migrateWhitelistConfig() {
 }
 
 async function callAIWithRetry(message: string, retryCount = 3) {
-  const config = ConfigManager.getConfig(); // 获取最新配置
+  const config = ConfigManager.getConfig();
+  const aiService = new AitiwoService(config.aitiwoKey);
   
-  for (let i = 0; i < retryCount; i++) {
-    try {
-      const response = await axios.post('https://api.aitiwo.com/api/chat', {
-        message,
-        api_key: config.aitiwoKey
-      });
-      return response.data.message;
-    } catch (error) {
-      if (i === retryCount - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
-    }
+  try {
+    return await aiService.chat(message);
+  } catch (error) {
+    logger.error('Bot', 'AI 调用失败', error);
+    throw error;
   }
 }
