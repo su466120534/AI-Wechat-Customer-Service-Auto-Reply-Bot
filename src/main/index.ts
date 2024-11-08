@@ -288,6 +288,23 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
   try {
     logger.info('Bot', '开始创建机器人实例...');
     
+    // API Key 检查
+    if (!config.aitiwoKey) {
+      logger.warn('Bot', 'API Key 未设置');
+      mainWindow.webContents.send('bot-event', 'warning', {
+        message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
+      });
+      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
+    }
+
+    // 白名单检查
+    if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
+      logger.warn('Bot', '白名单未设置');
+      mainWindow.webContents.send('bot-event', 'warning', {
+        message: '提示：当前未设置白名单，机器人将不会响应任何消息。请在"白名单配置"中设置。'
+      });
+    }
+
     // 检查是否已有实例在运行
     if (botInstance && await checkBotStatus()) {
       logger.info('Bot', '机器人实例已存在且在线');
@@ -832,7 +849,7 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
     qrcodeWindow = null;
   });
 
-  // 登录成功时关闭窗口
+  // 录成功时关闭窗口
   botInstance?.on('login', () => {
     if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
       qrcodeWindow.close();
@@ -992,9 +1009,9 @@ async function migrateWhitelistConfig() {
     // 加载 .env 文件
     dotenv.config();
     
-    // 获取白名单配置
-    const aliasWhitelist = process.env.ALIAS_WHITELIST || '';
-    const roomWhitelist = process.env.ROOM_WHITELIST || '';
+    // 获取白名单配置，如果为空则使用默认值
+    const aliasWhitelist = process.env.ALIAS_WHITELIST || 'iamsujiang';
+    const roomWhitelist = process.env.ROOM_WHITELIST || 'AI测试';
 
     // 验证和清理白名单数据
     const contacts = aliasWhitelist
@@ -1028,25 +1045,23 @@ async function migrateWhitelistConfig() {
     if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
       logger.info('Config', '开始迁移白名单配置');
       
-      // 验证配置数据
-      if (contacts.length === 0 && rooms.length === 0) {
-        logger.warn('Config', '白名单配置为空，请在应用中手动配置白名单');
-        return;
-      }
+      // 使用默认值或环境变量中的值
+      const defaultContacts = contacts.length > 0 ? contacts : ['iamsujiang'];
+      const defaultRooms = rooms.length > 0 ? rooms : ['AI测试'];
       
       // 设置白名单
-      await ConfigManager.setWhitelists(contacts, rooms);
+      await ConfigManager.setWhitelists(defaultContacts, defaultRooms);
       
       logger.info('Config', '白名单配置迁移成功', {
-        contacts,
-        rooms
+        contacts: defaultContacts,
+        rooms: defaultRooms
       });
 
       // 通过主窗口通知用户
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('config-migrated', {
-          contacts,
-          rooms
+          contacts: defaultContacts,
+          rooms: defaultRooms
         });
       }
     } else {
@@ -1074,3 +1089,46 @@ async function callAIWithRetry(message: string, retryCount = 3) {
     throw error;
   }
 }
+
+// 添加 IPC 处理器
+ipcMain.handle('stopBot', async () => {
+  try {
+    if (!botInstance) {
+      return {
+        success: true,
+        message: '机器人已经停止'
+      };
+    }
+
+    // 设置标志位，阻止消息处理
+    botInstance.isEnabled = false;
+
+    logger.info('Bot', '机器人已停止自动回复');
+    
+    // 通知渲染进程
+    mainWindow.webContents.send('bot-event', 'status', {
+      message: '机器人已停止自动回复消息'
+    });
+
+    return {
+      success: true,
+      message: '机器人已停止自动回复'
+    };
+  } catch (error) {
+    logger.error('Bot', '停止机器人失败', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '停止失败'
+    };
+  }
+});
+
+// 修改消息处理部分
+botInstance.on('message', async (message: any) => {
+  // 如果机器人已停止，不处理消息
+  if (!botInstance.isEnabled) {
+    return;
+  }
+  
+  // ... 其余消息处理代码保持不变
+});

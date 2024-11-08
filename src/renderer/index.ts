@@ -44,6 +44,10 @@ class App {
     const startBotButton = document.getElementById('startBot') as HTMLButtonElement;
     startBotButton.addEventListener('click', () => this.handleStartBot());
 
+    // 添加停止按钮事件
+    const stopBotButton = document.getElementById('stopBot') as HTMLButtonElement;
+    stopBotButton.addEventListener('click', () => this.handleStopBot());
+
     // 监听机器人事件
     this.initBotEventListeners();
   }
@@ -66,6 +70,27 @@ class App {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       this.logger.error('bot', `启动失败: ${errorMessage}`);
       this.botStatus.updateStatus('error', `启动失败: ${errorMessage}`);
+    }
+  }
+
+  private async handleStopBot() {
+    try {
+      this.logger.info('bot', '正在停止机器人...');
+      this.botStatus.updateStatus('waiting', '正在停止机器人...');
+      
+      const result = await window.electronAPI.stopBot();
+      
+      if (result.success) {
+        this.logger.info('bot', '机器人已停止自动回复消息');
+        this.botStatus.updateStatus('stopped', '机器人已停止自动回复消息');
+        this.botStatus.showWarning('如需退出微信登录，请在手机端点击退出该设备');
+      } else {
+        throw new Error(result.error || '停止失败');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      this.logger.error('bot', `停止失败: ${errorMessage}`);
+      this.botStatus.updateStatus('error', `停止失败: ${errorMessage}`);
     }
   }
 
@@ -93,6 +118,9 @@ class App {
         case 'status':
           this.handleStatusEvent(data);
           break;
+        case 'warning':
+          this.handleWarningEvent(data);
+          break;
       }
     });
   }
@@ -118,13 +146,20 @@ class App {
   }
 
   private handleStatusEvent(data: any) {
-    if (data.message.includes('重新连接')) {
+    if (data.message.includes('API Key')) {
+      // API Key 相关状态更新
+      this.botStatus.updateStatus('waiting', data.message);
+    } else if (data.message.includes('重新连接')) {
       this.botStatus.updateConnectionStatus('connecting', '正在重新连接...');
       this.logger.warning('bot', '检测到连接断开，正在尝试重新连接');
     } else if (data.message.includes('重连成功')) {
       this.botStatus.updateConnectionStatus('reconnected', '连接已恢复');
       this.logger.success('bot', '连接已恢复');
     }
+  }
+
+  private handleWarningEvent(data: any) {
+    this.botStatus.showWarning(data.message);
   }
 
   private initTabSwitching() {

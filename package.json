@@ -20,14 +20,15 @@
   "dependencies": {
     "archiver": "^5.3.1",
     "axios": "^1.6.8",
+    "cron": "^3.1.9",
+    "dotenv": "^16.0.0",
     "electron-updater": "^6.1.7",
     "log4js": "^6.9.1",
     "node-schedule": "^2.1.1",
     "qrcode": "^1.5.3",
     "wechaty": "^1.20.2",
     "wechaty-puppet": "^1.20.2",
-    "wechaty-puppet-wechat4u": "^1.14.14",
-    "dotenv": "^16.0.0"
+    "wechaty-puppet-wechat4u": "^1.14.14"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

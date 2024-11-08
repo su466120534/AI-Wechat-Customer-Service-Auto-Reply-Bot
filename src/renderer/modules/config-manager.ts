@@ -26,6 +26,10 @@ export class ConfigManager {
     this.roomWhitelistTextarea.addEventListener('input', () => this.handleWhitelistChange());
     this.importWhitelistButton.addEventListener('click', () => this.handleImportWhitelist());
     this.exportWhitelistButton.addEventListener('click', () => this.handleExportWhitelist());
+    this.aitiwoKeyInput.addEventListener('blur', () => this.handleApiKeyInput());
+    this.aitiwoKeyInput.addEventListener('input', () => {
+      this.aitiwoKeyInput.classList.remove('invalid');
+    });
   }
 
   async loadConfig() {
@@ -149,6 +153,29 @@ export class ConfigManager {
     const statusEl = document.querySelector('.whitelist-status');
     if (statusEl) {
       statusEl.textContent = `当前配置：${contacts} 个联系人，${rooms} 个群组`;
+    }
+  }
+
+  private async handleApiKeyInput() {
+    const value = this.aitiwoKeyInput.value.trim();
+    
+    if (!value) {
+      notification.show('请输入 API Key', 'warning');
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.saveAitiwoKey(value);
+      
+      if (result.success) {
+        notification.show('API Key 验证成功', 'success');
+        window.electronAPI.onBotEvent('API Key 设置成功，可以启动机器人了');
+      } else {
+        throw new Error(result.error || '验证失败');
+      }
+    } catch (error) {
+      notification.show('API Key 验证失败', 'error');
+      this.aitiwoKeyInput.classList.add('invalid');
     }
   }
 } 

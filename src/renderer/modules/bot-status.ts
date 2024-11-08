@@ -3,29 +3,33 @@ export class BotStatus {
   private statusIcon: HTMLElement;
   private statusMessage: HTMLElement;
   private startButton: HTMLButtonElement;
+  private stopButton: HTMLButtonElement;
   private connectionStatus: HTMLElement;
 
   constructor() {
     this.statusIcon = document.querySelector('.status-icon') as HTMLElement;
     this.statusMessage = document.querySelector('.status-message') as HTMLElement;
     this.startButton = document.getElementById('startBot') as HTMLButtonElement;
+    this.stopButton = document.getElementById('stopBot') as HTMLButtonElement;
     this.connectionStatus = document.querySelector('.connection-status') as HTMLElement;
   }
 
   updateStatus(status: 'running' | 'stopped' | 'error' | 'waiting', message?: string) {
-    if (!this.statusIcon || !this.statusMessage || !this.startButton) return;
+    if (!this.statusIcon || !this.statusMessage || !this.startButton || !this.stopButton) return;
 
     switch (status) {
       case 'running':
         this.statusIcon.className = 'status-icon running';
         this.statusMessage.textContent = message || '机器人运行中';
         this.startButton.disabled = true;
+        this.stopButton.disabled = false;
         this.startButton.textContent = '机器人运行中';
         break;
       case 'stopped':
         this.statusIcon.className = 'status-icon';
         this.statusMessage.textContent = message || '机器人已停止';
         this.startButton.disabled = false;
+        this.stopButton.disabled = true;
         this.startButton.textContent = '启动机器人';
         break;
       case 'waiting':
@@ -82,5 +86,19 @@ export class BotStatus {
     
     // 默认错误
     return error || '发生未知错误，请稍后重试';
+  }
+
+  showWarning(message: string) {
+    const warningEl = document.createElement('div');
+    warningEl.className = 'bot-warning';
+    warningEl.textContent = message;
+    
+    const container = document.querySelector('.bot-status-box');
+    container?.appendChild(warningEl);
+
+    // 5秒后自动消失
+    setTimeout(() => {
+      warningEl.remove();
+    }, 5000);
   }
 } 

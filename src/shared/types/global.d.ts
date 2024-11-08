@@ -29,6 +29,7 @@ declare global {
         error?: string;
       }>;
       onBotEvent: (callback: (event: string, data: any) => void) => void;
+      stopBot: () => Promise<{ success: boolean; message?: string; error?: string }>;
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;
