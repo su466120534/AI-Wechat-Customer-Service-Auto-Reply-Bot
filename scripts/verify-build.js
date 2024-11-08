@@ -18,13 +18,13 @@ function verifyBuild() {
   // 2. 验证编译输出
   console.log('\n检查编译输出文件...');
   const requiredFiles = [
-    'main.js',
-    'preload.js',
-    'renderer.js',
-    'utils/logger.js',
-    'utils/scheduler.js',
-    'components/loading.js',
-    'components/notification.js'
+    'main/index.js',
+    'main/preload.js',
+    'renderer/index.js',
+    'main/utils/logger.js',
+    'main/utils/scheduler.js',
+    'renderer/components/loading.js',
+    'renderer/components/notification.js'
   ];
 
   const missingFiles = requiredFiles.filter(file => 
@@ -42,7 +42,8 @@ function verifyBuild() {
   console.log('\n检查资源文件...');
   const resourceFiles = [
     'index.html',
-    'styles.css'
+    'styles/index.css',
+    'renderer.bundle.js'
   ];
 
   const missingResources = resourceFiles.filter(file => 

@@ -6,7 +6,21 @@
   },
   "files": [
     "dist/**/*",
-    "package.json"
+    "package.json",
+    "!**/*.map",
+    "!src/**/*",
+    "!scripts/**/*"
+  ],
+  "extraResources": [
+    {
+      "from": "node_modules",
+      "to": "app/node_modules",
+      "filter": [
+        "wechaty/**/*",
+        "wechaty-puppet/**/*",
+        "wechaty-puppet-wechat4u/**/*"
+      ]
+    }
   ],
   "win": {
     "target": ["nsis"],
@@ -16,8 +30,11 @@
     "target": ["dmg"],
     "icon": "assets/icon.icns"
   },
-  "linux": {
-    "target": ["AppImage"],
-    "icon": "assets/icon.png"
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "WeChat Bot"
   }
 } 

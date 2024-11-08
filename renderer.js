@@ -1,7 +1,13 @@
 "use strict";
 (() => {
   var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __commonJS = (cb, mod) => function __require() {
+  var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+    get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+  }) : x)(function(x) {
+    if (typeof require !== "undefined") return require.apply(this, arguments);
+    throw Error('Dynamic require of "' + x + '" is not supported');
+  });
+  var __commonJS = (cb, mod) => function __require2() {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   };
 
@@ -116,26 +122,17 @@
     }
   });
 
-  // dist/utils/error-handler.js
-  var require_error_handler = __commonJS({
-    "dist/utils/error-handler.js"(exports) {
+  // dist/utils/renderer-error-handler.js
+  var require_renderer_error_handler = __commonJS({
+    "dist/utils/renderer-error-handler.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.ErrorCodes = exports.AppError = void 0;
       exports.handleError = handleError;
       var renderer_logger_1 = require_renderer_logger();
       var notification_1 = require_notification();
-      var AppError = class extends Error {
-        constructor(message, code, shouldNotify = true) {
-          super(message);
-          this.code = code;
-          this.shouldNotify = shouldNotify;
-          this.name = "AppError";
-        }
-      };
-      exports.AppError = AppError;
+      var error_handler_1 = require_error_handler();
       function handleError(error, context = "") {
-        if (error instanceof AppError) {
+        if (error instanceof error_handler_1.AppError) {
           if (error.shouldNotify) {
             notification_1.notification.show(error.message, "error");
           }
@@ -148,6 +145,155 @@
           renderer_logger_1.rendererLogger.error(context, "Unknown Error", { error });
         }
       }
+    }
+  });
+
+  // dist/utils/logger.js
+  var require_logger = __commonJS({
+    "dist/utils/logger.js"(exports) {
+      "use strict";
+      var __createBinding = exports && exports.__createBinding || (Object.create ? function(o, m, k, k2) {
+        if (k2 === void 0) k2 = k;
+        var desc = Object.getOwnPropertyDescriptor(m, k);
+        if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+          desc = { enumerable: true, get: function() {
+            return m[k];
+          } };
+        }
+        Object.defineProperty(o, k2, desc);
+      } : function(o, m, k, k2) {
+        if (k2 === void 0) k2 = k;
+        o[k2] = m[k];
+      });
+      var __setModuleDefault = exports && exports.__setModuleDefault || (Object.create ? function(o, v) {
+        Object.defineProperty(o, "default", { enumerable: true, value: v });
+      } : function(o, v) {
+        o["default"] = v;
+      });
+      var __importStar = exports && exports.__importStar || function(mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) {
+          for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+        }
+        __setModuleDefault(result, mod);
+        return result;
+      };
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.logger = void 0;
+      var log4js = __importStar(__require("log4js"));
+      var path = __importStar(__require("path"));
+      var electron_1 = __require("electron");
+      var LOG_DIR = path.join(electron_1.app.getPath("userData"), "logs");
+      var Logger = class {
+        constructor() {
+          this.mainWindow = null;
+          log4js.configure({
+            appenders: {
+              file: {
+                type: "dateFile",
+                filename: path.join(LOG_DIR, "app.log"),
+                pattern: "yyyy-MM-dd",
+                compress: true,
+                keepFileExt: true,
+                alwaysIncludePattern: true,
+                layout: {
+                  type: "pattern",
+                  pattern: "[%d] [%p] %c - %m"
+                }
+              },
+              console: {
+                type: "console",
+                layout: {
+                  type: "pattern",
+                  pattern: "%[[%d] [%p] %c%] - %m"
+                }
+              }
+            },
+            categories: {
+              default: {
+                appenders: ["file", "console"],
+                level: "info",
+                enableCallStack: true
+              }
+            }
+          });
+          this.logger = log4js.getLogger();
+        }
+        setMainWindow(window2) {
+          this.mainWindow = window2;
+        }
+        createLogItem(level, category, message, details) {
+          return {
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            level,
+            category,
+            message,
+            details
+          };
+        }
+        sendToRenderer(logItem) {
+          if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+            this.mainWindow.webContents.send("new-log", logItem);
+          }
+        }
+        info(category, message, details) {
+          const logItem = this.createLogItem("info", category, message, details);
+          this.logger.info(`[${category}] ${message}`);
+          this.sendToRenderer(logItem);
+        }
+        warn(category, message, details) {
+          const logItem = this.createLogItem("warn", category, message, details);
+          this.logger.warn(`[${category}] ${message}`);
+          this.sendToRenderer(logItem);
+        }
+        error(category, message, details) {
+          const logItem = this.createLogItem("error", category, message, details);
+          this.logger.error(`[${category}] ${message}`);
+          if (details) {
+            this.logger.error(details);
+          }
+          this.sendToRenderer(logItem);
+        }
+        debug(category, message, details) {
+          const logItem = this.createLogItem("debug", category, message, details);
+          this.logger.debug(`[${category}] ${message}`);
+          this.sendToRenderer(logItem);
+        }
+        async getLogs(limit = 100) {
+          return [];
+        }
+      };
+      exports.logger = new Logger();
+    }
+  });
+
+  // dist/utils/main-error-handler.js
+  var require_main_error_handler = __commonJS({
+    "dist/utils/main-error-handler.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.ErrorCodes = exports.AppError = void 0;
+      exports.handleError = handleError;
+      var logger_1 = require_logger();
+      var AppError = class extends Error {
+        constructor(message, code, shouldNotify = true) {
+          super(message);
+          this.code = code;
+          this.shouldNotify = shouldNotify;
+          this.name = "AppError";
+        }
+      };
+      exports.AppError = AppError;
+      function handleError(error, context = "") {
+        if (error instanceof AppError) {
+          logger_1.logger.error(context, `${error.code || "ERROR"}: ${error.message}`);
+        } else if (error instanceof Error) {
+          logger_1.logger.error(context, "Unexpected Error", error);
+        } else {
+          logger_1.logger.error(context, "Unknown Error", { error });
+        }
+      }
       exports.ErrorCodes = {
         NETWORK_ERROR: "NETWORK_ERROR",
         INVALID_INPUT: "INVALID_INPUT",
@@ -155,6 +301,39 @@
         CONFIG_ERROR: "CONFIG_ERROR",
         SCHEDULE_ERROR: "SCHEDULE_ERROR"
       };
+    }
+  });
+
+  // dist/utils/error-handler.js
+  var require_error_handler = __commonJS({
+    "dist/utils/error-handler.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.handleError = exports.ErrorCodes = exports.AppError = void 0;
+      var AppError = class extends Error {
+        constructor(message, code, shouldNotify = true) {
+          super(message);
+          this.code = code;
+          this.shouldNotify = shouldNotify;
+          this.name = "AppError";
+        }
+      };
+      exports.AppError = AppError;
+      exports.ErrorCodes = {
+        NETWORK_ERROR: "NETWORK_ERROR",
+        INVALID_INPUT: "INVALID_INPUT",
+        BOT_ERROR: "BOT_ERROR",
+        CONFIG_ERROR: "CONFIG_ERROR",
+        SCHEDULE_ERROR: "SCHEDULE_ERROR"
+      };
+      var isRenderer = () => {
+        try {
+          return typeof window !== "undefined" && window.process === void 0;
+        } catch {
+          return false;
+        }
+      };
+      exports.handleError = isRenderer() ? require_renderer_error_handler().handleError : require_main_error_handler().handleError;
     }
   });
 
@@ -234,20 +413,56 @@
           (0, error_handler_1.handleError)(error, "loadConfig");
         }
       }
-      aitiwoKeyInput.addEventListener("change", async () => {
+      var saveTimeout;
+      aitiwoKeyInput.addEventListener("input", () => {
+        const value = aitiwoKeyInput.value.trim();
+        if (value) {
+          aitiwoKeyInput.classList.remove("invalid");
+          aitiwoKeyInput.classList.add("valid");
+        } else {
+          aitiwoKeyInput.classList.remove("valid");
+          aitiwoKeyInput.classList.add("invalid");
+        }
+        if (saveTimeout) {
+          clearTimeout(saveTimeout);
+        }
+        saveTimeout = setTimeout(async () => {
+          try {
+            if (!value) {
+              throw new error_handler_1.AppError("API Key \u4E0D\u80FD\u4E3A\u7A7A", error_handler_1.ErrorCodes.INVALID_INPUT);
+            }
+            loading.show("\u6B63\u5728\u9A8C\u8BC1 API Key...");
+            const result = await window.electronAPI.saveAitiwoKey(value);
+            if (!result.success) {
+              throw new error_handler_1.AppError(result.error || "\u4FDD\u5B58\u5931\u8D25", error_handler_1.ErrorCodes.CONFIG_ERROR);
+            }
+            notification_1.notification.show("API Key \u8BBE\u7F6E\u6210\u529F", "success");
+          } catch (error) {
+            (0, error_handler_1.handleError)(error, "saveApiKey");
+            aitiwoKeyInput.classList.add("invalid");
+          } finally {
+            loading.hide();
+          }
+        }, 1e3);
+      });
+      aitiwoKeyInput.addEventListener("blur", async () => {
+        if (saveTimeout) {
+          clearTimeout(saveTimeout);
+        }
+        const value = aitiwoKeyInput.value.trim();
         try {
-          loading.show("\u6B63\u5728\u9A8C\u8BC1 API Key...");
-          if (!aitiwoKeyInput.value.trim()) {
+          if (!value) {
             throw new error_handler_1.AppError("API Key \u4E0D\u80FD\u4E3A\u7A7A", error_handler_1.ErrorCodes.INVALID_INPUT);
           }
-          const result = await window.electronAPI.saveAitiwoKey(aitiwoKeyInput.value);
+          loading.show("\u6B63\u5728\u9A8C\u8BC1 API Key...");
+          const result = await window.electronAPI.saveAitiwoKey(value);
           if (!result.success) {
             throw new error_handler_1.AppError(result.error || "\u4FDD\u5B58\u5931\u8D25", error_handler_1.ErrorCodes.CONFIG_ERROR);
           }
           notification_1.notification.show("API Key \u8BBE\u7F6E\u6210\u529F", "success");
         } catch (error) {
           (0, error_handler_1.handleError)(error, "saveApiKey");
-          aitiwoKeyInput.value = "";
+          aitiwoKeyInput.classList.add("invalid");
         } finally {
           loading.hide();
         }
@@ -267,6 +482,9 @@
       });
       startBotButton.addEventListener("click", async () => {
         try {
+          if (!aitiwoKeyInput.value.trim()) {
+            throw new error_handler_1.AppError("\u8BF7\u5148\u8BBE\u7F6E API Key", error_handler_1.ErrorCodes.INVALID_INPUT);
+          }
           loading.show("\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...");
           startBotButton.disabled = true;
           const result = await window.electronAPI.startBot();

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
     <title>WeChat Bot Client</title>
-    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./styles/index.css">
 </head>
 <body>
     <div class="container">
@@ -33,9 +33,31 @@
                 <label>AITIWO API Key:</label>
                 <input type="text" id="aitiwoKey" placeholder="请输入 AITIWO API Key">
                 <div class="form-help">在 AITIWO 平台获取 API Key</div>
+                <div class="api-status"></div>
             </div>
-            <button id="startBot" class="btn-primary">启动机器人</button>
-            <div id="qrcode"></div>
+            <div class="bot-control">
+                <button id="startBot" class="btn-primary">启动机器人</button>
+                <div class="bot-status-box">
+                    <div class="status-icon"></div>
+                    <div class="status-message">等待启动...</div>
+                    <div class="connection-status"></div>
+                </div>
+            </div>
+            <div class="qrcode-container" id="qrcode">
+                <div class="qrcode-loading">
+                    <div class="spinner"></div>
+                    <p>正在生成二维码...</p>
+                </div>
+                <div class="qrcode-status"></div>
+                <div class="qrcode-timeout">
+                    <p>二维码已过期</p>
+                    <button class="btn-primary refresh-qrcode">刷新二维码</button>
+                </div>
+            </div>
+            <div class="key-messages">
+                <h3>运行状态</h3>
+                <div class="message-list" id="keyMessages"></div>
+            </div>
         </div>
 
         <div class="tab-content" id="whitelist">
@@ -49,7 +71,11 @@
                 <textarea id="roomWhitelist" placeholder="每行输入一个群名"></textarea>
                 <div class="form-help">仅在白名单中的群聊响应消息</div>
             </div>
-            <button id="saveWhitelist" class="btn-primary">保存配置</button>
+            <div class="whitelist-controls">
+                <button id="saveWhitelist" class="btn-primary">保存配置</button>
+                <button id="importWhitelist" class="btn-secondary">导入白名单</button>
+                <button id="exportWhitelist" class="btn-secondary">导出白名单</button>
+            </div>
         </div>
 
         <div class="tab-content" id="schedule">
@@ -87,21 +113,34 @@
             <div class="logs-header">
                 <h3>系统日志</h3>
                 <div class="logs-controls">
-                    <select id="logLevel">
+                    <select id="logLevel" class="log-filter">
                         <option value="all">所有级别</option>
                         <option value="info">信息</option>
                         <option value="warn">警告</option>
                         <option value="error">错误</option>
                         <option value="debug">调试</option>
                     </select>
-                    <button id="clearLogs" class="btn-danger">清除日志</button>
-                    <button id="exportLogs" class="btn-primary">导出日志</button>
+                    <input type="text" id="logSearch" class="log-search" placeholder="搜索日志...">
+                    <div class="log-actions">
+                        <button id="clearLogs" class="btn-warning">清除日志</button>
+                        <button id="exportLogs" class="btn-primary">导出日志</button>
+                    </div>
                 </div>
             </div>
-            <div class="logs-container" id="logsContainer"></div>
+            <div class="logs-container" id="logsContainer">
+                <div class="log-list"></div>
+            </div>
+            <div class="logs-footer">
+                <div class="log-stats">
+                    <span class="total-logs">总日志数: <span id="totalLogs">0</span></span>
+                    <span class="filtered-logs">已过滤: <span id="filteredLogs">0</span></span>
+                </div>
+            </div>
+            <div id="logViewer"></div>
         </div>
     </div>
+    <div id="logViewer"></div>
     <script src="./js/error-handler.js"></script>
-    <script type="module" src="./renderer.js"></script>
+    <script type="module" src="./renderer.bundle.js"></script>
 </body>
 </html> 

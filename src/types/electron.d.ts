@@ -1,22 +1,17 @@
-declare module 'electron' {
-  import type { BrowserWindow as BW } from 'electron/main';
-  import type { App as AppT } from 'electron/main';
-  import type { IpcMain as IpcMainT } from 'electron/main';
-  import type { WebContents as WebContentsT } from 'electron/main';
-  import type { IpcRenderer as IpcRendererT } from 'electron/renderer';
-  import type { ContextBridge as ContextBridgeT } from 'electron/renderer';
+import { LogItem } from '../shared/types/logger'
+import { ScheduleTask } from '../shared/types/config'
 
-  // 导出接口
-  export interface ElectronAPI {
-    BrowserWindow: typeof BW;
-    app: AppT;
-    ipcMain: IpcMainT;
-    webContents: WebContentsT;
-    ipcRenderer: IpcRendererT;
-    contextBridge: ContextBridgeT;
+declare module 'electron' {
+  interface IpcMain {
+    handle(channel: string, listener: (event: any, ...args: any[]) => Promise<any>): void;
   }
 
-  // 导出模块
-  const api: ElectronAPI;
-  export default api;
+  interface IpcRenderer {
+    invoke(channel: string, ...args: any[]): Promise<any>;
+    on(channel: string, listener: (event: any, ...args: any[]) => void): void;
+  }
+
+  interface WebContents {
+    send(channel: string, ...args: any[]): void;
+  }
 } 

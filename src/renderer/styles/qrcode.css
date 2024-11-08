@@ -1,0 +1,47 @@
+.qrcode-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.qrcode-image {
+  max-width: 280px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  padding: 10px;
+}
+
+.retry-button {
+  margin-top: 10px;
+  padding: 8px 16px;
+  background: #1890ff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.retry-button:hover {
+  background: #40a9ff;
+}
+
+.qrcode-status {
+  margin-top: 10px;
+  color: #666;
+  text-align: center;
+}
+
+.qrcode-loading {
+  display: none;
+  text-align: center;
+  padding: 20px;
+}
+
+.qrcode-loading.show {
+  display: block;
+} 

@@ -1,3 +1,5 @@
+dist/
+build/
 node_modules
 WechatEveryDay.memory-card.json
 .env
