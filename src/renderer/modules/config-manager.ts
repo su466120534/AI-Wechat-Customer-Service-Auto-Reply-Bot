@@ -6,77 +6,120 @@ export class ConfigManager {
   private aitiwoKeyInput: HTMLInputElement;
   private contactWhitelistTextarea: HTMLTextAreaElement;
   private roomWhitelistTextarea: HTMLTextAreaElement;
-  private loading: LoadingUI;
+  private importWhitelistButton: HTMLButtonElement;
+  private exportWhitelistButton: HTMLButtonElement;
+  private saveTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     this.aitiwoKeyInput = document.getElementById('aitiwoKey') as HTMLInputElement;
     this.contactWhitelistTextarea = document.getElementById('contactWhitelist') as HTMLTextAreaElement;
     this.roomWhitelistTextarea = document.getElementById('roomWhitelist') as HTMLTextAreaElement;
-    this.loading = new LoadingUI();
+    this.importWhitelistButton = document.getElementById('importWhitelist') as HTMLButtonElement;
+    this.exportWhitelistButton = document.getElementById('exportWhitelist') as HTMLButtonElement;
 
     this.bindEvents();
+    this.loadConfig();
   }
 
   private bindEvents() {
-    // API Key 相关事件
-    this.aitiwoKeyInput.addEventListener('input', () => this.handleApiKeyInput());
-    this.aitiwoKeyInput.addEventListener('blur', () => this.handleApiKeyBlur());
-
-    // 白名单导入导出事件
-    document.getElementById('exportWhitelist')?.addEventListener('click', () => this.exportWhitelist());
-    document.getElementById('importWhitelist')?.addEventListener('click', () => this.importWhitelist());
+    this.contactWhitelistTextarea.addEventListener('input', () => this.handleWhitelistChange());
+    this.roomWhitelistTextarea.addEventListener('input', () => this.handleWhitelistChange());
+    this.importWhitelistButton.addEventListener('click', () => this.handleImportWhitelist());
+    this.exportWhitelistButton.addEventListener('click', () => this.handleExportWhitelist());
   }
 
-  private async handleApiKeyInput() {
-    const value = this.aitiwoKeyInput.value.trim();
-    if (!value) {
-      notification.show('请输入 API Key', 'warning');
-      return;
-    }
-
+  async loadConfig() {
     try {
-      await window.electronAPI.saveAitiwoKey(value);
-      notification.show('API Key 验证成功', 'success');
+      const config = await window.electronAPI.getConfig();
+      this.contactWhitelistTextarea.value = config.contactWhitelist.join('\n');
+      this.roomWhitelistTextarea.value = config.roomWhitelist.join('\n');
+      this.aitiwoKeyInput.value = config.aitiwoKey;
     } catch (error) {
-      notification.show('API Key 验证失败', 'error');
+      notification.show('加载配置失败', 'error');
     }
   }
 
-  private async handleApiKeyBlur() {
-    const value = this.aitiwoKeyInput.value.trim();
+  private handleWhitelistChange() {
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+
+    this.saveTimeout = setTimeout(async () => {
+      try {
+        const contacts = this.contactWhitelistTextarea.value
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean);
+          
+        const rooms = this.roomWhitelistTextarea.value
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean);
+
+        const result = await window.electronAPI.saveWhitelist({ contacts, rooms });
+        
+        if (result.success) {
+          notification.show('白名单已自动保存', 'success', 2000);
+        } else {
+          throw new Error(result.error || '保存失败');
+        }
+      } catch (error) {
+        notification.show(error instanceof Error ? error.message : '保存失败', 'error');
+      }
+    }, 500);
+  }
+
+  private async handleImportWhitelist() {
     try {
-      if (!value) {
-        throw new ConfigError('API Key 不能为空', ErrorCode.API_KEY_INVALID);
-      }
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
       
-      this.loading.show('正在验证 API Key...');
-      const result = await window.electronAPI.saveAitiwoKey(value);
-      
-      if (!result.success) {
-        throw new ConfigError(result.error || '保存失败', ErrorCode.CONFIG_SAVE_FAILED);
-      }
-      
-      notification.show('API Key 设置成功', 'success');
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          try {
+            const data = JSON.parse(e.target?.result as string);
+            
+            if (!Array.isArray(data.contacts) || !Array.isArray(data.rooms)) {
+              throw new Error('无效的白名单数据格式');
+            }
+
+            this.contactWhitelistTextarea.value = data.contacts.join('\n');
+            this.roomWhitelistTextarea.value = data.rooms.join('\n');
+
+            const result = await window.electronAPI.importWhitelist(data);
+            
+            if (result.success) {
+              notification.show('白名单导入成功', 'success');
+              await this.loadConfig();
+            } else {
+              throw new Error(result.error || '导入失败');
+            }
+          } catch (error) {
+            notification.show(error instanceof Error ? error.message : '导入失败', 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      input.click();
     } catch (error) {
-      if (error instanceof AppError) {
-        notification.show(error.message, 'error');
-      } else {
-        notification.show('API Key 验证失败', 'error');
-      }
-      this.aitiwoKeyInput.classList.add('invalid');
-    } finally {
-      this.loading.hide();
+      notification.show(error instanceof Error ? error.message : '导入失败', 'error');
     }
   }
 
-  private async exportWhitelist() {
+  private async handleExportWhitelist() {
     try {
       const result = await window.electronAPI.exportWhitelist();
+      
       if (!result.success) {
-        throw new Error(result.error);
+        throw new Error(result.error || '导出失败');
       }
 
-      // 创建下载文件
       const data = JSON.stringify(result.data, null, 2);
       const blob = new Blob([data], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -91,75 +134,21 @@ export class ConfigManager {
 
       notification.show('白名单导出成功', 'success');
     } catch (error) {
-      notification.show('白名单导出失败', 'error');
+      notification.show(error instanceof Error ? error.message : '导出失败', 'error');
     }
   }
 
-  private async importWhitelist() {
-    try {
-      // 创建文件输入元素
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = 'application/json';
-      
-      input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
-        if (!file) return;
+  private updateWhitelistStatus() {
+    const contacts = this.contactWhitelistTextarea.value
+      .split('\n')
+      .filter(Boolean).length;
+    const rooms = this.roomWhitelistTextarea.value
+      .split('\n')
+      .filter(Boolean).length;
 
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          try {
-            const data = JSON.parse(e.target?.result as string);
-            const result = await window.electronAPI.importWhitelist(data);
-            
-            if (!result.success) {
-              throw new Error(result.error);
-            }
-
-            // 更新界面
-            await this.loadConfig();
-            notification.show('白名单导入成功', 'success');
-          } catch (error) {
-            notification.show('白名单导入失败', 'error');
-          }
-        };
-        reader.readAsText(file);
-      };
-
-      input.click();
-    } catch (error) {
-      notification.show('白名单导入失败', 'error');
-    }
-  }
-
-  async loadConfig() {
-    try {
-      const config = await window.electronAPI.getConfig();
-      this.aitiwoKeyInput.value = config.aitiwoKey;
-      this.contactWhitelistTextarea.value = config.contactWhitelist.join('\n');
-      this.roomWhitelistTextarea.value = config.roomWhitelist.join('\n');
-    } catch (error) {
-      notification.show('加载配置失败', 'error');
-    }
-  }
-
-  async saveWhitelist() {
-    try {
-      const contacts = this.contactWhitelistTextarea.value.split('\n').filter(line => line.trim());
-      const rooms = this.roomWhitelistTextarea.value.split('\n').filter(line => line.trim());
-      
-      const result = await window.electronAPI.saveWhitelist(contacts, rooms);
-      if (!result.success) {
-        throw new AppError(result.error || '保存失败', ErrorCode.CONFIG_ERROR);
-      }
-      
-      notification.show('白名单保存成功', 'success');
-    } catch (error) {
-      if (error instanceof AppError) {
-        notification.show(error.message, 'error');
-      } else {
-        notification.show('保存白名单失败', 'error');
-      }
+    const statusEl = document.querySelector('.whitelist-status');
+    if (statusEl) {
+      statusEl.textContent = `当前配置：${contacts} 个联系人，${rooms} 个群组`;
     }
   }
 } 

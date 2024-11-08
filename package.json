@@ -26,7 +26,8 @@
     "qrcode": "^1.5.3",
     "wechaty": "^1.20.2",
     "wechaty-puppet": "^1.20.2",
-    "wechaty-puppet-wechat4u": "^1.14.14"
+    "wechaty-puppet-wechat4u": "^1.14.14",
+    "dotenv": "^16.0.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

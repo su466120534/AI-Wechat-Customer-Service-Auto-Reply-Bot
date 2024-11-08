@@ -1,4 +1,4 @@
-/// <reference types="../types/global.d.ts" />
+/// <reference types="../shared/types/global.d.ts" />
 
 import { LoadingUI } from './components/loading';
 import { notification } from './components/notification';

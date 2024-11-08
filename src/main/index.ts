@@ -14,6 +14,8 @@ import QRCode from 'qrcode'
 import { errorRecoveryManager } from './utils/error-recovery'
 import { errorNotificationManager } from './utils/error-notification'
 import { errorMonitor } from './utils/error-monitor'
+import * as dotenv from 'dotenv';
+import { Message, Contact, Room } from 'wechaty';
 
 // 在顶部声明 wechaty 相关的变量
 const wechaty = require('wechaty')
@@ -21,6 +23,22 @@ const { WechatyBuilder } = wechaty
 let botInstance: any = null;
 let qrcodeWindow: BrowserWindow | null = null;
 let isStarting = false;  // 添加启动状态标志
+
+// 在文件顶部添加消息类型枚举
+enum MessageType {
+  Unknown = 0,
+  Attachment = 1,
+  Audio = 2,
+  Contact = 3,
+  Emoticon = 4,
+  Image = 6,
+  Text = 7,
+  Video = 8,
+  Url = 9,
+  MiniProgram = 10,
+  System = 11,
+  Recalled = 12
+}
 
 interface PlatformAPI {
   BASE_URL: string
@@ -67,7 +85,7 @@ async function checkNetworkAndReconnect(): Promise<void> {
     logger.info('Recovery', '检查网络连接');
     // 添加检查
     if (!mainWindow) {
-      throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
+      throw new AppError('主口未初始化', ErrorCode.SYSTEM_ERROR);
     }
     const config = ConfigManager.getConfig();
     // 添加 mainWindow 参数
@@ -249,7 +267,7 @@ function createWindow(): void {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        // 删除任何现有的 CSP 头
+        // 删任何现有的 CSP 头
         'Content-Security-Policy': [''],
         // 添加新的 CSP 头
         'content-security-policy': [
@@ -313,62 +331,137 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
       // 添加消息处理
       botInstance.on('message', async (message: any) => {
         try {
-          // 使用 talker() 替代 from()
-          const talker = message.talker();
-          const room = message.room();
+          // 使用枚举来判断消息类型
+          if (message.type() === MessageType.System || message.type() === MessageType.Recalled) {
+            logger.debug('Bot', '忽略系统消息或撤回消息');
+            return;
+          }
+
+          const talker = message.talker() as Contact;
+          const room = message.room() as Room;
           const text = message.text();
+
+          // 如果消息内容为空，直接返回
+          if (!text.trim()) {
+            return;
+          }
           
+          // 详细的日志记录
           logger.info('Bot', '收到新消息', {
-            from: talker?.name(),  // 使用 talker 替代 from
+            from: talker?.name(),
             text: text,
-            room: room ? await room.topic() : undefined
+            room: room ? await room.topic() : undefined,
+            messageType: message.type(),
+            timestamp: message.date()
           });
 
           // 过滤自己发送的消息
           if (message.self()) {
+            logger.debug('Bot', '忽略自己发送的消息');
             return;
           }
 
-          // 检查白名单
+          // 获取最新配置，避免使用缓存的白名单
           const config = ConfigManager.getConfig();
-          const isAllowedContact = talker && config.contactWhitelist.includes(talker.name());
-          const isAllowedRoom = room && config.roomWhitelist.includes(await room.topic());
 
-          if (!isAllowedContact && !isAllowedRoom) {
-            logger.info('Bot', '消息来源不在白名单中，忽略', {
-              contact: talker?.name(),
-              room: room ? await room.topic() : undefined
-            });
-            return;
-          }
-
-          // 调用 AI 接口获取回复
+          // 白名单验证
           try {
-            const response = await axios.post('https://api.aitiwo.com/api/chat', {
-              message: text,
-              api_key: config.aitiwoKey
-            });
-
-            // 发送回复
+            const talkerName = talker?.name() || '';
+            let roomTopic = '';
+            
             if (room) {
-              await room.say(response.data.message);
-            } else if (talker) {  // 使用 talker 替代 contact
-              await talker.say(response.data.message);
+              try {
+                roomTopic = await room.topic();
+              } catch (error) {
+                logger.error('Bot', '获取群名失败', error);
+                roomTopic = (room as any).id || '未知群聊';
+              }
             }
 
-            logger.info('Bot', '回复消息成功', {
-              to: room ? await room.topic() : talker?.name(),
-              reply: response.data.message
+            // 详细的白名单检查日志
+            logger.debug('Bot', '白名单检查', {
+              talkerName,
+              roomTopic,
+              inContactWhitelist: config.contactWhitelist.includes(talkerName),
+              inRoomWhitelist: config.roomWhitelist.includes(roomTopic)
             });
+
+            const isAllowedContact = talker && config.contactWhitelist.includes(talkerName);
+            const isAllowedRoom = room && config.roomWhitelist.includes(roomTopic);
+
+            if (!isAllowedContact && !isAllowedRoom) {
+              logger.info('Bot', '消息来源不在白名单中，忽略', {
+                contact: talkerName,
+                room: roomTopic
+              });
+              return;
+            }
+
+            // 处理群名变更情况
+            if (room && !isAllowedRoom && roomTopic) {
+              // 检查是否是群名变更导致的不匹配
+              const similarRoom = config.roomWhitelist.find(name => 
+                name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
+              );
+              
+              if (similarRoom) {
+                logger.info('Bot', '检测到群名变更', {
+                  oldName: similarRoom,
+                  newName: roomTopic
+                });
+                
+                // 更新白名单中的群名
+                const updatedRooms = config.roomWhitelist.map(name => 
+                  name === similarRoom ? roomTopic : name
+                );
+                
+                await ConfigManager.setWhitelists(config.contactWhitelist, updatedRooms);
+                logger.info('Bot', '已更新群名白名单');
+              }
+            }
+
+            // 调用 AI 接口获取回复
+            try {
+              const response = await callAIWithRetry(text, 3);
+
+              const replyMessage = response;
+
+              // 发送回复
+              if (room) {
+                await (room as any).say(replyMessage);
+                logger.info('Bot', '群聊回复成功', {
+                  room: roomTopic,
+                  message: replyMessage
+                });
+              } else if (talker) {
+                await (talker as any).say(replyMessage);
+                logger.info('Bot', '私聊回复成功', {
+                  contact: talkerName,
+                  message: replyMessage
+                });
+              }
+
+            } catch (error) {
+              logger.error('Bot', 'AI 接口调用失败', error);
+              const errorMessage = '抱歉，我现在无法回复，请稍后再试';
+              
+              if (room) {
+                await (room as any).say(errorMessage);
+              } else if (talker) {
+                await (talker as any).say(errorMessage);
+              }
+              
+              // 记录错误详情
+              logger.error('Bot', 'AI 回复失败', {
+                error: error instanceof Error ? error.message : '未知错误',
+                contact: talkerName,
+                room: roomTopic,
+                originalMessage: text
+              });
+            }
 
           } catch (error) {
-            logger.error('Bot', 'AI 接口调用失败', error);
-            const errorMessage = '抱歉，我现在无法回复，请稍后再试';
-            if (room) {
-              await room.say(errorMessage);
-            } else if (talker) {  // 使用 talker 替代 contact
-              await talker.say(errorMessage);
-            }
+            logger.error('Bot', '白名单验证失败', error);
           }
 
         } catch (error) {
@@ -624,15 +717,18 @@ function setupAutoUpdater(): void {
 }
 
 // 在用启动时检查环境
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   try {
+    // 先迁移配置
+    await migrateWhitelistConfig();
+    
     // 创建窗口
     createWindow();
     
-    // 设自动更新
+    // 设置自动更新
     setupAutoUpdater();
   } catch (error) {
-    logger.error('App', '应用动失败', error);
+    logger.error('App', '应用启动失败', error);
     app.quit();
   }
 });
@@ -764,7 +860,7 @@ function showRetryButton() {
   }
 }
 
-// 重试机制
+// 重试制
 
 // 添加在 retryStartBot 函数之前
 const MAX_RETRY_COUNT = 3;
@@ -786,7 +882,7 @@ async function retryStartBot() {
   }
 }
 
-// 监听主窗口关闭事件，同时关闭二维码窗口
+// 监听主窗口关闭事件，同时关闭二维码口
 app.on('window-all-closed', () => {
   if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
     qrcodeWindow.close();
@@ -810,7 +906,7 @@ async function checkBotStatus(): Promise<boolean> {
   }
 }
 
-// 修改获取实例函数
+// 修改获取实函数
 async function getBotInstance(config: any): Promise<any> {
   try {
     // 防止重复启动
@@ -819,7 +915,7 @@ async function getBotInstance(config: any): Promise<any> {
       return botInstance;
     }
 
-    // 如果实例存在且已登录，直接返回
+    // 如果���例存在且已登录，直接返回
     if (botInstance && await checkBotStatus()) {
       logger.info('Bot', '使用现有登录状态');
       return botInstance;
@@ -859,7 +955,7 @@ app.on('before-quit', async () => {
       botInstance = null;
       logger.info('App', '应用退出，保持微信登录状态');
     } catch (error) {
-      logger.error('App', '应用退���处理失败', error);
+      logger.error('App', '应用退出处理失败', error);
     }
   }
 });
@@ -883,9 +979,103 @@ app.on('activate', () => {
   }
 });
 
-// 添加事件发送函数
+// 添加件发送函数
 function sendBotEvent(event: string, data: any) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('bot-event', event, data);
+  }
+}
+
+// 修改配置迁移函数
+async function migrateWhitelistConfig() {
+  try {
+    // 加载 .env 文件
+    dotenv.config();
+    
+    // 获取白名单配置
+    const aliasWhitelist = process.env.ALIAS_WHITELIST || '';
+    const roomWhitelist = process.env.ROOM_WHITELIST || '';
+
+    // 验证和清理白名单数据
+    const contacts = aliasWhitelist
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => {
+        // 过滤掉空值和特殊字符
+        const isValid = item && !/[<>:"/\\|?*]/.test(item);
+        if (!isValid && item) {
+          logger.warn('Config', `联系人白名单包含无效值: ${item}`);
+        }
+        return isValid;
+      });
+
+    const rooms = roomWhitelist
+      .split(',')
+      .map(item => item.trim())
+      .filter(item => {
+        // 过滤掉空值和特殊字符
+        const isValid = item && !/[<>:"/\\|?*]/.test(item);
+        if (!isValid && item) {
+          logger.warn('Config', `群聊白名单包含无效值: ${item}`);
+        }
+        return isValid;
+      });
+
+    // 获取当前配置
+    const currentConfig = ConfigManager.getConfig();
+    
+    // 如果当前配置中没有白名单数据，则进行迁移
+    if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
+      logger.info('Config', '开始迁移白名单配置');
+      
+      // 验证配置数据
+      if (contacts.length === 0 && rooms.length === 0) {
+        logger.warn('Config', '白名单配置为空，请在应用中手动配置白名单');
+        return;
+      }
+      
+      // 设置白名单
+      await ConfigManager.setWhitelists(contacts, rooms);
+      
+      logger.info('Config', '白名单配置迁移成功', {
+        contacts,
+        rooms
+      });
+
+      // 通过主窗口通知用户
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('config-migrated', {
+          contacts,
+          rooms
+        });
+      }
+    } else {
+      logger.info('Config', '已存在白名单配置，跳过迁移');
+    }
+  } catch (error) {
+    logger.error('Config', '白名单配置迁移失败', error);
+    // 记录错误但不中断应用启动
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('config-migration-failed', {
+        error: error instanceof Error ? error.message : '配置迁移失败'
+      });
+    }
+  }
+}
+
+async function callAIWithRetry(message: string, retryCount = 3) {
+  const config = ConfigManager.getConfig(); // 获取最新配置
+  
+  for (let i = 0; i < retryCount; i++) {
+    try {
+      const response = await axios.post('https://api.aitiwo.com/api/chat', {
+        message,
+        api_key: config.aitiwoKey
+      });
+      return response.data.message;
+    } catch (error) {
+      if (i === retryCount - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+    }
   }
 }

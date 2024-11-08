@@ -41,33 +41,35 @@
     "dist/renderer/components/notification.js"(exports) {
       "use strict";
       Object.defineProperty(exports, "__esModule", { value: true });
-      exports.notification = void 0;
-      var NotificationUI = class {
+      exports.notification = exports.Notification = void 0;
+      var Notification = class {
         constructor() {
-          this.timeout = 3e3;
+          this.timeout = null;
           this.container = document.createElement("div");
-          this.container.style.cssText = `
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 9999;
-    `;
+          this.container.className = "notification-container";
           document.body.appendChild(this.container);
         }
-        show(message, type = "info") {
+        show(message, type = "success", duration = 3e3) {
+          if (this.timeout) {
+            clearTimeout(this.timeout);
+          }
           const notification = document.createElement("div");
-          notification.className = `notification notification-${type}`;
+          notification.className = `notification ${type}`;
           notification.textContent = message;
           this.container.appendChild(notification);
-          setTimeout(() => {
-            notification.style.opacity = "0";
+          requestAnimationFrame(() => {
+            notification.classList.add("show");
+          });
+          this.timeout = setTimeout(() => {
+            notification.classList.remove("show");
             setTimeout(() => {
               this.container.removeChild(notification);
             }, 300);
-          }, this.timeout);
+          }, duration);
         }
       };
-      exports.notification = new NotificationUI();
+      exports.Notification = Notification;
+      exports.notification = new Notification();
     }
   });
 
@@ -292,118 +294,6 @@
     }
   });
 
-  // dist/shared/types/logger.js
-  var require_logger = __commonJS({
-    "dist/shared/types/logger.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-    }
-  });
-
-  // dist/shared/types/errors.js
-  var require_errors = __commonJS({
-    "dist/shared/types/errors.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.AiServiceError = exports.BotError = exports.ConfigError = exports.NetworkError = exports.ErrorCode = exports.AppError = void 0;
-      var AppError = class extends Error {
-        constructor(message, code, shouldNotify = true, recoverable = true) {
-          super(message);
-          this.code = code;
-          this.shouldNotify = shouldNotify;
-          this.recoverable = recoverable;
-          this.name = "AppError";
-        }
-      };
-      exports.AppError = AppError;
-      var ErrorCode;
-      (function(ErrorCode2) {
-        ErrorCode2["CONFIG_INVALID"] = "CONFIG_INVALID";
-        ErrorCode2["CONFIG_SAVE_FAILED"] = "CONFIG_SAVE_FAILED";
-        ErrorCode2["API_KEY_INVALID"] = "API_KEY_INVALID";
-        ErrorCode2["API_REQUEST_FAILED"] = "API_REQUEST_FAILED";
-        ErrorCode2["BOT_INIT_FAILED"] = "BOT_INIT_FAILED";
-        ErrorCode2["BOT_MESSAGE_FAILED"] = "BOT_MESSAGE_FAILED";
-        ErrorCode2["BOT_DISCONNECTED"] = "BOT_DISCONNECTED";
-        ErrorCode2["SCHEDULE_INVALID"] = "SCHEDULE_INVALID";
-        ErrorCode2["SCHEDULE_SAVE_FAILED"] = "SCHEDULE_SAVE_FAILED";
-        ErrorCode2["SYSTEM_ERROR"] = "SYSTEM_ERROR";
-        ErrorCode2["NETWORK_ERROR"] = "NETWORK_ERROR";
-        ErrorCode2["NETWORK_TIMEOUT"] = "NETWORK_TIMEOUT";
-        ErrorCode2["NETWORK_DISCONNECTED"] = "NETWORK_DISCONNECTED";
-        ErrorCode2["SYSTEM_RESOURCE_ERROR"] = "SYSTEM_RESOURCE_ERROR";
-        ErrorCode2["AI_RESPONSE_INVALID"] = "AI_RESPONSE_INVALID";
-        ErrorCode2["INVALID_INPUT"] = "INVALID_INPUT";
-        ErrorCode2["BOT_ERROR"] = "BOT_ERROR";
-        ErrorCode2["CONFIG_ERROR"] = "CONFIG_ERROR";
-        ErrorCode2["SCHEDULE_ERROR"] = "SCHEDULE_ERROR";
-      })(ErrorCode || (exports.ErrorCode = ErrorCode = {}));
-      var NetworkError = class extends AppError {
-        constructor(message, code = ErrorCode.NETWORK_DISCONNECTED) {
-          super(message, code, true);
-          this.name = "NetworkError";
-        }
-      };
-      exports.NetworkError = NetworkError;
-      var ConfigError = class extends AppError {
-        constructor(message, code = ErrorCode.CONFIG_INVALID) {
-          super(message, code, true);
-          this.name = "ConfigError";
-        }
-      };
-      exports.ConfigError = ConfigError;
-      var BotError = class extends AppError {
-        constructor(message, code = ErrorCode.BOT_INIT_FAILED) {
-          super(message, code, true);
-          this.name = "BotError";
-        }
-      };
-      exports.BotError = BotError;
-      var AiServiceError = class extends AppError {
-        constructor(message, code = ErrorCode.API_REQUEST_FAILED) {
-          super(message, code, true);
-          this.name = "AiServiceError";
-        }
-      };
-      exports.AiServiceError = AiServiceError;
-    }
-  });
-
-  // dist/shared/types/config.js
-  var require_config = __commonJS({
-    "dist/shared/types/config.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-    }
-  });
-
-  // dist/shared/types/index.js
-  var require_types = __commonJS({
-    "dist/shared/types/index.js"(exports) {
-      "use strict";
-      var __createBinding = exports && exports.__createBinding || (Object.create ? function(o, m, k, k2) {
-        if (k2 === void 0) k2 = k;
-        var desc = Object.getOwnPropertyDescriptor(m, k);
-        if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-          desc = { enumerable: true, get: function() {
-            return m[k];
-          } };
-        }
-        Object.defineProperty(o, k2, desc);
-      } : function(o, m, k, k2) {
-        if (k2 === void 0) k2 = k;
-        o[k2] = m[k];
-      });
-      var __exportStar = exports && exports.__exportStar || function(m, exports2) {
-        for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports2, p)) __createBinding(exports2, m, p);
-      };
-      Object.defineProperty(exports, "__esModule", { value: true });
-      __exportStar(require_logger(), exports);
-      __exportStar(require_errors(), exports);
-      __exportStar(require_config(), exports);
-    }
-  });
-
   // dist/renderer/modules/config-manager.js
   var require_config_manager = __commonJS({
     "dist/renderer/modules/config-manager.js"(exports) {
@@ -411,63 +301,93 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.ConfigManager = void 0;
       var notification_1 = require_notification();
-      var loading_1 = require_loading();
-      var types_1 = require_types();
       var ConfigManager = class {
         constructor() {
+          this.saveTimeout = null;
           this.aitiwoKeyInput = document.getElementById("aitiwoKey");
           this.contactWhitelistTextarea = document.getElementById("contactWhitelist");
           this.roomWhitelistTextarea = document.getElementById("roomWhitelist");
-          this.loading = new loading_1.LoadingUI();
+          this.importWhitelistButton = document.getElementById("importWhitelist");
+          this.exportWhitelistButton = document.getElementById("exportWhitelist");
           this.bindEvents();
+          this.loadConfig();
         }
         bindEvents() {
-          this.aitiwoKeyInput.addEventListener("input", () => this.handleApiKeyInput());
-          this.aitiwoKeyInput.addEventListener("blur", () => this.handleApiKeyBlur());
-          document.getElementById("exportWhitelist")?.addEventListener("click", () => this.exportWhitelist());
-          document.getElementById("importWhitelist")?.addEventListener("click", () => this.importWhitelist());
+          this.contactWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
+          this.roomWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
+          this.importWhitelistButton.addEventListener("click", () => this.handleImportWhitelist());
+          this.exportWhitelistButton.addEventListener("click", () => this.handleExportWhitelist());
         }
-        async handleApiKeyInput() {
-          const value = this.aitiwoKeyInput.value.trim();
-          if (!value) {
-            notification_1.notification.show("\u8BF7\u8F93\u5165 API Key", "warning");
-            return;
-          }
+        async loadConfig() {
           try {
-            await window.electronAPI.saveAitiwoKey(value);
-            notification_1.notification.show("API Key \u9A8C\u8BC1\u6210\u529F", "success");
+            const config = await window.electronAPI.getConfig();
+            this.contactWhitelistTextarea.value = config.contactWhitelist.join("\n");
+            this.roomWhitelistTextarea.value = config.roomWhitelist.join("\n");
+            this.aitiwoKeyInput.value = config.aitiwoKey;
           } catch (error) {
-            notification_1.notification.show("API Key \u9A8C\u8BC1\u5931\u8D25", "error");
+            notification_1.notification.show("\u52A0\u8F7D\u914D\u7F6E\u5931\u8D25", "error");
           }
         }
-        async handleApiKeyBlur() {
-          const value = this.aitiwoKeyInput.value.trim();
+        handleWhitelistChange() {
+          if (this.saveTimeout) {
+            clearTimeout(this.saveTimeout);
+          }
+          this.saveTimeout = setTimeout(async () => {
+            try {
+              const contacts = this.contactWhitelistTextarea.value.split("\n").map((line) => line.trim()).filter(Boolean);
+              const rooms = this.roomWhitelistTextarea.value.split("\n").map((line) => line.trim()).filter(Boolean);
+              const result = await window.electronAPI.saveWhitelist({ contacts, rooms });
+              if (result.success) {
+                notification_1.notification.show("\u767D\u540D\u5355\u5DF2\u81EA\u52A8\u4FDD\u5B58", "success", 2e3);
+              } else {
+                throw new Error(result.error || "\u4FDD\u5B58\u5931\u8D25");
+              }
+            } catch (error) {
+              notification_1.notification.show(error instanceof Error ? error.message : "\u4FDD\u5B58\u5931\u8D25", "error");
+            }
+          }, 500);
+        }
+        async handleImportWhitelist() {
           try {
-            if (!value) {
-              throw new types_1.ConfigError("API Key \u4E0D\u80FD\u4E3A\u7A7A", types_1.ErrorCode.API_KEY_INVALID);
-            }
-            this.loading.show("\u6B63\u5728\u9A8C\u8BC1 API Key...");
-            const result = await window.electronAPI.saveAitiwoKey(value);
-            if (!result.success) {
-              throw new types_1.ConfigError(result.error || "\u4FDD\u5B58\u5931\u8D25", types_1.ErrorCode.CONFIG_SAVE_FAILED);
-            }
-            notification_1.notification.show("API Key \u8BBE\u7F6E\u6210\u529F", "success");
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".json";
+            input.onchange = async (e) => {
+              const file = e.target.files?.[0];
+              if (!file)
+                return;
+              const reader = new FileReader();
+              reader.onload = async (e2) => {
+                try {
+                  const data = JSON.parse(e2.target?.result);
+                  if (!Array.isArray(data.contacts) || !Array.isArray(data.rooms)) {
+                    throw new Error("\u65E0\u6548\u7684\u767D\u540D\u5355\u6570\u636E\u683C\u5F0F");
+                  }
+                  this.contactWhitelistTextarea.value = data.contacts.join("\n");
+                  this.roomWhitelistTextarea.value = data.rooms.join("\n");
+                  const result = await window.electronAPI.importWhitelist(data);
+                  if (result.success) {
+                    notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u5165\u6210\u529F", "success");
+                    await this.loadConfig();
+                  } else {
+                    throw new Error(result.error || "\u5BFC\u5165\u5931\u8D25");
+                  }
+                } catch (error) {
+                  notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u5165\u5931\u8D25", "error");
+                }
+              };
+              reader.readAsText(file);
+            };
+            input.click();
           } catch (error) {
-            if (error instanceof types_1.AppError) {
-              notification_1.notification.show(error.message, "error");
-            } else {
-              notification_1.notification.show("API Key \u9A8C\u8BC1\u5931\u8D25", "error");
-            }
-            this.aitiwoKeyInput.classList.add("invalid");
-          } finally {
-            this.loading.hide();
+            notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u5165\u5931\u8D25", "error");
           }
         }
-        async exportWhitelist() {
+        async handleExportWhitelist() {
           try {
             const result = await window.electronAPI.exportWhitelist();
             if (!result.success) {
-              throw new Error(result.error);
+              throw new Error(result.error || "\u5BFC\u51FA\u5931\u8D25");
             }
             const data = JSON.stringify(result.data, null, 2);
             const blob = new Blob([data], { type: "application/json" });
@@ -481,64 +401,15 @@
             URL.revokeObjectURL(url);
             notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u51FA\u6210\u529F", "success");
           } catch (error) {
-            notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u51FA\u5931\u8D25", "error");
+            notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u51FA\u5931\u8D25", "error");
           }
         }
-        async importWhitelist() {
-          try {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = "application/json";
-            input.onchange = async (e) => {
-              const file = e.target.files?.[0];
-              if (!file)
-                return;
-              const reader = new FileReader();
-              reader.onload = async (e2) => {
-                try {
-                  const data = JSON.parse(e2.target?.result);
-                  const result = await window.electronAPI.importWhitelist(data);
-                  if (!result.success) {
-                    throw new Error(result.error);
-                  }
-                  await this.loadConfig();
-                  notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u5165\u6210\u529F", "success");
-                } catch (error) {
-                  notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u5165\u5931\u8D25", "error");
-                }
-              };
-              reader.readAsText(file);
-            };
-            input.click();
-          } catch (error) {
-            notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u5165\u5931\u8D25", "error");
-          }
-        }
-        async loadConfig() {
-          try {
-            const config = await window.electronAPI.getConfig();
-            this.aitiwoKeyInput.value = config.aitiwoKey;
-            this.contactWhitelistTextarea.value = config.contactWhitelist.join("\n");
-            this.roomWhitelistTextarea.value = config.roomWhitelist.join("\n");
-          } catch (error) {
-            notification_1.notification.show("\u52A0\u8F7D\u914D\u7F6E\u5931\u8D25", "error");
-          }
-        }
-        async saveWhitelist() {
-          try {
-            const contacts = this.contactWhitelistTextarea.value.split("\n").filter((line) => line.trim());
-            const rooms = this.roomWhitelistTextarea.value.split("\n").filter((line) => line.trim());
-            const result = await window.electronAPI.saveWhitelist(contacts, rooms);
-            if (!result.success) {
-              throw new types_1.AppError(result.error || "\u4FDD\u5B58\u5931\u8D25", types_1.ErrorCode.CONFIG_ERROR);
-            }
-            notification_1.notification.show("\u767D\u540D\u5355\u4FDD\u5B58\u6210\u529F", "success");
-          } catch (error) {
-            if (error instanceof types_1.AppError) {
-              notification_1.notification.show(error.message, "error");
-            } else {
-              notification_1.notification.show("\u4FDD\u5B58\u767D\u540D\u5355\u5931\u8D25", "error");
-            }
+        updateWhitelistStatus() {
+          const contacts = this.contactWhitelistTextarea.value.split("\n").filter(Boolean).length;
+          const rooms = this.roomWhitelistTextarea.value.split("\n").filter(Boolean).length;
+          const statusEl = document.querySelector(".whitelist-status");
+          if (statusEl) {
+            statusEl.textContent = `\u5F53\u524D\u914D\u7F6E\uFF1A${contacts} \u4E2A\u8054\u7CFB\u4EBA\uFF0C${rooms} \u4E2A\u7FA4\u7EC4`;
           }
         }
       };
