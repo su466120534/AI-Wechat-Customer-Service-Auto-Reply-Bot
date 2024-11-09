@@ -8899,6 +8899,12 @@
           const messageList = document.createElement("div");
           messageList.className = "message-list";
           container.appendChild(messageList);
+          const botStatusBox = document.querySelector(".bot-status-box");
+          if (botStatusBox) {
+            botStatusBox.appendChild(container);
+          } else {
+            document.body.appendChild(container);
+          }
           return container;
         }
         addMessage(message, type = "info") {
@@ -8938,7 +8944,6 @@
       var renderer_logger_1 = require_renderer_logger();
       var key_messages_1 = require_key_messages();
       var loading = new loading_1.LoadingUI();
-      var keyMessages = new key_messages_1.KeyMessages();
       var App = class {
         constructor() {
           this.scheduleManager = null;
@@ -8982,10 +8987,10 @@
           try {
             const config = await window.electronAPI.getConfig();
             if (!config.aitiwoKey) {
-              keyMessages.addMessage("\u8BF7\u5148\u8BBE\u7F6E API Key\u3002\u60A8\u53EF\u4EE5\u524D\u5F80 qiye.aitiwo.com \u521B\u5EFA\u673A\u5668\u4EBA\u5E76\u83B7\u53D6 API Key\u3002", "warning");
+              key_messages_1.keyMessages.addMessage("\u8BF7\u5148\u8BBE\u7F6E API Key\u3002\u60A8\u53EF\u4EE5\u524D\u5F80 qiye.aitiwo.com \u521B\u5EFA\u673A\u5668\u4EBA\u5E76\u83B7\u53D6 API Key\u3002", "warning");
             }
             if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
-              keyMessages.addMessage('\u63D0\u793A\uFF1A\u5F53\u524D\u672A\u8BBE\u7F6E\u767D\u540D\u5355\uFF0C\u673A\u5668\u4EBA\u5C06\u4E0D\u4F1A\u54CD\u5E94\u4EFB\u4F55\u6D88\u606F\u3002\u8BF7\u5728"\u767D\u540D\u5355\u914D\u7F6E"\u4E2D\u8BBE\u7F6E\u3002', "warning");
+              key_messages_1.keyMessages.addMessage('\u63D0\u793A\uFF1A\u5F53\u524D\u672A\u8BBE\u7F6E\u767D\u540D\u5355\uFF0C\u673A\u5668\u4EBA\u5C06\u4E0D\u4F1A\u54CD\u5E94\u4EFB\u4F55\u6D88\u606F\u3002\u8BF7\u5728"\u767D\u540D\u5355\u914D\u7F6E"\u4E2D\u8BBE\u7F6E\u3002', "warning");
             }
           } catch (error) {
             this.logger.error("App", "\u68C0\u67E5\u914D\u7F6E\u5931\u8D25", error);
@@ -9010,11 +9015,11 @@
               try {
                 const result = await window.electronAPI.invoke("save-aitiwo-key", apiKeyInput.value);
                 if (result.success) {
-                  keyMessages.addMessage("API Key \u8BBE\u7F6E\u6210\u529F\uFF0C\u5DF2\u901A\u8FC7\u9A8C\u8BC1", "success");
-                  keyMessages.addMessage('\u73B0\u5728\u60A8\u53EF\u4EE5\u70B9\u51FB"\u542F\u52A8\u673A\u5668\u4EBA"\u6309\u94AE\u5F00\u59CB\u4F7F\u7528\u4E86', "info");
+                  key_messages_1.keyMessages.addMessage("API Key \u8BBE\u7F6E\u6210\u529F\uFF0C\u5DF2\u901A\u8FC7\u9A8C\u8BC1", "success");
+                  key_messages_1.keyMessages.addMessage('\u73B0\u5728\u60A8\u53EF\u4EE5\u70B9\u51FB"\u542F\u52A8\u673A\u5668\u4EBA"\u6309\u94AE\u5F00\u59CB\u4F7F\u7528\u4E86', "info");
                 }
               } catch (error) {
-                keyMessages.addMessage("API Key \u8BBE\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u662F\u5426\u6B63\u786E", "error");
+                key_messages_1.keyMessages.addMessage("API Key \u8BBE\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u662F\u5426\u6B63\u786E", "error");
               }
             });
           }
@@ -9025,14 +9030,14 @@
           try {
             this.logger.info("bot", "\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...");
             this.botStatus.updateStatus("waiting", "\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...");
-            keyMessages.addMessage("\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...", "info");
+            key_messages_1.keyMessages.addMessage("\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...", "info");
             const result = await window.electronAPI.startBot();
             if (result.success) {
               const message = result.message || "\u673A\u5668\u4EBA\u542F\u52A8\u6210\u529F";
               this.logger.info("bot", message);
               this.botStatus.updateStatus("waiting", message);
-              keyMessages.addMessage(message, "success");
-              keyMessages.addMessage("\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u63CF\u4E8C\u7EF4\u7801\u767B\u5F55", "info");
+              key_messages_1.keyMessages.addMessage(message, "success");
+              key_messages_1.keyMessages.addMessage("\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u63CF\u4E8C\u7EF4\u7801\u767B\u5F55", "info");
             } else {
               throw new Error(result.error || "\u542F\u52A8\u5931\u8D25");
             }
@@ -9040,7 +9045,7 @@
             const errorMessage = error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF";
             this.logger.error("bot", `\u542F\u52A8\u5931\u8D25: ${errorMessage}`);
             this.botStatus.updateStatus("error", `\u542F\u52A8\u5931\u8D25: ${errorMessage}`);
-            keyMessages.addMessage(`\u542F\u52A8\u5931\u8D25: ${errorMessage}`, "error");
+            key_messages_1.keyMessages.addMessage(`\u542F\u52A8\u5931\u8D25: ${errorMessage}`, "error");
           }
         }
         async handleStopBot() {
@@ -9049,13 +9054,13 @@
           try {
             this.logger.info("bot", "\u6B63\u5728\u505C\u6B62\u673A\u5668\u4EBA...");
             this.botStatus.updateStatus("waiting", "\u6B63\u5728\u505C\u6B62\u673A\u5668\u4EBA...");
-            keyMessages.addMessage("\u6B63\u5728\u505C\u6B62\u673A\u5668\u4EBA\u81EA\u52A8\u56DE\u590D...", "info");
+            key_messages_1.keyMessages.addMessage("\u6B63\u5728\u505C\u6B62\u673A\u5668\u4EBA\u81EA\u52A8\u56DE\u590D...", "info");
             const result = await window.electronAPI.stopBot();
             if (result.success) {
               this.logger.info("bot", "\u673A\u5668\u4EBA\u5DF2\u505C\u6B62\u81EA\u52A8\u56DE\u590D\u6D88\u606F");
               this.botStatus.updateStatus("stopped", "\u673A\u5668\u4EBA\u5DF2\u505C\u6B62\u81EA\u52A8\u56DE\u590D\u6D88\u606F");
-              keyMessages.addMessage("\u673A\u5668\u4EBA\u5DF2\u505C\u6B62\u81EA\u52A8\u56DE\u590D\uFF0C\u5FAE\u4FE1\u4ECD\u4FDD\u6301\u767B\u5F55\u72B6\u6001", "warning");
-              keyMessages.addMessage("\u5982\u9700\u9000\u51FA\u5FAE\u4FE1\u767B\u5F55\uFF0C\u8BF7\u5728\u624B\u673A\u5FAE\u4FE1\u4E0A\u64CD\u4F5C", "info");
+              key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5DF2\u505C\u6B62\u81EA\u52A8\u56DE\u590D\uFF0C\u5FAE\u4FE1\u4ECD\u4FDD\u6301\u767B\u5F55\u72B6\u6001", "warning");
+              key_messages_1.keyMessages.addMessage("\u5982\u9700\u9000\u51FA\u5FAE\u4FE1\u767B\u5F55\uFF0C\u8BF7\u5728\u624B\u673A\u5FAE\u4FE1\u4E0A\u64CD\u4F5C", "info");
             } else {
               throw new Error(result.error || "\u505C\u6B62\u5931\u8D25");
             }
@@ -9063,7 +9068,7 @@
             const errorMessage = error instanceof Error ? error.message : "\u672A\u77E5\u9519\u8BEF";
             this.logger.error("bot", `\u505C\u6B62\u5931\u8D25: ${errorMessage}`);
             this.botStatus.updateStatus("error", `\u505C\u6B62\u5931\u8D25: ${errorMessage}`);
-            keyMessages.addMessage(`\u505C\u6B62\u5931\u8D25: ${errorMessage}`, "error");
+            key_messages_1.keyMessages.addMessage(`\u505C\u6B62\u5931\u8D25: ${errorMessage}`, "error");
           }
         }
         initBotEventListeners() {
@@ -9071,7 +9076,7 @@
             return;
           window.electronAPI.onQrcodeGenerated((qrcode) => {
             this.qrcodeManager?.show(qrcode);
-            keyMessages.addMessage("\u4E8C\u7EF4\u7801\u5DF2\u751F\u6210\uFF0C\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u7801\u767B\u5F55", "info");
+            key_messages_1.keyMessages.addMessage("\u4E8C\u7EF4\u7801\u5DF2\u751F\u6210\uFF0C\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u7801\u767B\u5F55", "info");
           });
           window.electronAPI.onBotEvent((event, data) => {
             switch (event) {
@@ -9096,7 +9101,7 @@
             }
           });
           window.electronAPI.on("key-message", (data) => {
-            keyMessages.addMessage(data.message, data.type);
+            key_messages_1.keyMessages.addMessage(data.message, data.type);
           });
         }
         handleLoginEvent(data) {
@@ -9105,15 +9110,15 @@
           this.qrcodeManager.hide();
           this.logger.info("bot", `\u5FAE\u4FE1\u767B\u5F55\u6210\u529F: ${data.userName}`);
           this.botStatus.updateStatus("running", "\u673A\u5668\u4EBA\u5DF2\u767B\u5F55\u5E76\u8FD0\u884C\u4E2D");
-          keyMessages.addMessage(`\u5FAE\u4FE1\u767B\u5F55\u6210\u529F\uFF0C\u7528\u6237\uFF1A${data.userName}`, "success");
-          keyMessages.addMessage("\u673A\u5668\u4EBA\u5F00\u59CB\u5DE5\u4F5C\uFF0C\u5C06\u81EA\u52A8\u56DE\u590D\u6D88\u606F", "info");
+          key_messages_1.keyMessages.addMessage(`\u5FAE\u4FE1\u767B\u5F55\u6210\u529F\uFF0C\u7528\u6237\uFF1A${data.userName}`, "success");
+          key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5F00\u59CB\u5DE5\u4F5C\uFF0C\u5C06\u81EA\u52A8\u56DE\u590D\u6D88\u606F", "info");
         }
         handleLogoutEvent(data) {
           if (!this.botStatus)
             return;
           this.logger.warning("bot", `\u7528\u6237\u5DF2\u767B\u51FA: ${data.userName}`);
           this.botStatus.updateStatus("stopped", "\u673A\u5668\u4EBA\u5DF2\u767B\u51FA");
-          keyMessages.addMessage(`\u5FAE\u4FE1\u5DF2\u767B\u51FA\uFF0C\u7528\u6237\uFF1A${data.userName}`, "warning");
+          key_messages_1.keyMessages.addMessage(`\u5FAE\u4FE1\u5DF2\u767B\u51FA\uFF0C\u7528\u6237\uFF1A${data.userName}`, "warning");
         }
         handleMessageEvent(data) {
           this.logger.info("bot", `\u6536\u5230\u65B0\u6D88\u606F: ${data.text}`);
@@ -9124,26 +9129,26 @@
           const errorMessage = data.message || "\u53D1\u751F\u9519\u8BEF";
           this.logger.error("bot", errorMessage);
           this.botStatus.updateStatus("error", errorMessage);
-          keyMessages.addMessage(errorMessage, "error");
+          key_messages_1.keyMessages.addMessage(errorMessage, "error");
         }
         handleStatusEvent(data) {
           if (!this.botStatus)
             return;
           if (data.message.includes("API Key")) {
             this.botStatus.updateStatus("waiting", data.message);
-            keyMessages.addMessage(data.message, "warning");
+            key_messages_1.keyMessages.addMessage(data.message, "warning");
           } else if (data.message.includes("\u91CD\u65B0\u8FDE\u63A5")) {
             this.botStatus.updateStatus("waiting");
-            keyMessages.addMessage("\u68C0\u6D4B\u5230\u8FDE\u63A5\u65AD\u5F00\uFF0C\u6B63\u5728\u5C1D\u8BD5\u91CD\u65B0\u8FDE\u63A5...", "warning");
+            key_messages_1.keyMessages.addMessage("\u68C0\u6D4B\u5230\u8FDE\u63A5\u65AD\u5F00\uFF0C\u6B63\u5728\u5C1D\u8BD5\u91CD\u65B0\u8FDE\u63A5...", "warning");
           } else if (data.message.includes("\u91CD\u8FDE\u6210\u529F")) {
             this.botStatus.updateStatus("running");
-            keyMessages.addMessage("\u7F51\u7EDC\u8FDE\u63A5\u5DF2\u6062\u590D", "success");
+            key_messages_1.keyMessages.addMessage("\u7F51\u7EDC\u8FDE\u63A5\u5DF2\u6062\u590D", "success");
           }
         }
         handleWarningEvent(data) {
           if (!this.botStatus)
             return;
-          keyMessages.addMessage(data.message, "warning");
+          key_messages_1.keyMessages.addMessage(data.message, "warning");
         }
         initTabSwitching() {
           document.querySelector(".tabs")?.addEventListener("click", (e) => {

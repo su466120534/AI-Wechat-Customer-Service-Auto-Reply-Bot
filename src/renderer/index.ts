@@ -12,13 +12,10 @@ import { ConfigManager } from './modules/config-manager';
 import { LogLevel } from '../shared/types/logger';
 import { LogViewer } from './components/log-viewer';
 import { rendererLogger } from './utils/renderer-logger';
-import { KeyMessages } from './components/key-messages';
+import { keyMessages } from './components/key-messages';
 
 // 初始化UI组件
 const loading = new LoadingUI();
-
-// 新建一个 KeyMessages 组件来管理运行状态消息
-const keyMessages = new KeyMessages();
 
 class App {
   private logger: Logger;

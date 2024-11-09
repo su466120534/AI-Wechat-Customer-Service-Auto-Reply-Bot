@@ -232,6 +232,14 @@ function handleWindowError(window: BrowserWindow) {
 }
 
 function createWindow(): void {
+  // 检查是否已经存在窗口
+  if (mainWindow) {
+    // 如果窗口已存在，只需要显示它
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    return;
+  }
+
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -241,32 +249,28 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       webSecurity: true
     }
-  }) as MainWindow
+  }) as MainWindow;
 
   const indexPath = process.env.NODE_ENV === 'development'
     ? path.join(__dirname, '..', 'index.html')
-    : path.join(__dirname, 'index.html')
+    : path.join(__dirname, 'index.html');
 
-  logger.info('Window', `加载页面路径: ${indexPath}`)
-  mainWindow.loadFile(indexPath)
+  logger.info('Window', `加载页面路径: ${indexPath}`);
+  mainWindow.loadFile(indexPath);
 
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools()
+    mainWindow.webContents.openDevTools();
   }
 
   mainWindow.webContents.on('dom-ready', () => {
-    logger.info('Window', 'DOM 准备就绪')
-  })
+    logger.info('Window', 'DOM 准备就绪');
+  });
 
-  logger.setMainWindow(mainWindow)
-
-  // 设置错误通知管理器的主窗口
+  logger.setMainWindow(mainWindow);
   errorNotificationManager.setMainWindow(mainWindow);
-
-  // 设置 errorRecoveryManager 的 mainWindow
   errorRecoveryManager.setMainWindow(mainWindow);
+  scheduleManager.setMainWindow(mainWindow);
 
-  // 窗口错误处理
   handleWindowError(mainWindow);
 
   // 修改 CSP 设置方式
@@ -287,9 +291,6 @@ function createWindow(): void {
       }
     });
   });
-
-  // 设置 scheduleManager 的主窗口
-  scheduleManager.setMainWindow(mainWindow);
 }
 
 // 修改 startBot 函数
@@ -440,7 +441,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
 
               // 处理群名变更情况
               if (room && !isAllowedRoom && roomTopic) {
-                // 检查是否是群名变更导致的不匹配
+                // 检查是否是群��变更导致的不匹配
                 const similarRoom = config.roomWhitelist.find(name => 
                   name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
                 );
@@ -505,7 +506,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             }
 
           } catch (error) {
-            logger.error('Bot', '处理消息失败', error);
+            logger.error('Bot', '处消息失败', error);
           }
         });
 
@@ -615,10 +616,10 @@ function setupAutoUpdater(): void {
 // 在用启动时检查环境
 app.whenReady().then(async () => {
   try {
-    // 先迁移配置
-    await migrateWhitelistConfig();
+    // 注册所有 IPC 处理器
+    registerIpcHandlers();
     
-    // 创建窗口
+    // 创建窗口 - 只在这里创建一次
     createWindow();
     
     // 设置自动更新
@@ -863,6 +864,8 @@ app.on('window-all-closed', () => {
 
 // 添加应用激活事件处理（macOS）
 app.on('activate', () => {
+  // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
+  // 通常在应用程序中重新创建一个窗口。
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
@@ -1077,6 +1080,12 @@ function wrapHandler(handler: (...args: any[]) => Promise<any>) {
 
 // 4. 统一注册所有处理器
 function registerIpcHandlers() {
+  // 在注册前先移除所有已存在的处理器
+  for (const channel of Object.values(IPC_CHANNELS)) {
+    ipcMain.removeHandler(channel);
+  }
+  
+  // 注册新的处理器
   Object.entries(ipcHandlers).forEach(([channel, handler]) => {
     ipcMain.handle(channel, wrapHandler(handler));
   });
