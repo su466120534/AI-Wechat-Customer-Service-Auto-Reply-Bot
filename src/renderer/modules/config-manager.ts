@@ -2,6 +2,13 @@ import { notification } from '../components/notification';
 import { LoadingUI } from '../components/loading';
 import { AppError, ErrorCode, ConfigError } from '../../shared/types';
 
+interface Config {
+  aitiwoKey?: string;
+  contactWhitelist: string[];
+  roomWhitelist: string[];
+  schedules: ScheduleTask[];  // 添加定时任务数组
+}
+
 export class ConfigManager {
   private aitiwoKeyInput: HTMLInputElement;
   private contactWhitelistTextarea: HTMLTextAreaElement;
@@ -9,6 +16,11 @@ export class ConfigManager {
   private importWhitelistButton: HTMLButtonElement;
   private exportWhitelistButton: HTMLButtonElement;
   private saveTimeout: NodeJS.Timeout | null = null;
+  private config: Config = {
+    contactWhitelist: [],
+    roomWhitelist: [],
+    schedules: []
+  };
 
   constructor() {
     this.aitiwoKeyInput = document.getElementById('aitiwoKey') as HTMLInputElement;
@@ -37,7 +49,7 @@ export class ConfigManager {
       const config = await window.electronAPI.getConfig();
       this.contactWhitelistTextarea.value = config.contactWhitelist.join('\n');
       this.roomWhitelistTextarea.value = config.roomWhitelist.join('\n');
-      this.aitiwoKeyInput.value = config.aitiwoKey;
+      this.aitiwoKeyInput.value = config.aitiwoKey || '';
     } catch (error) {
       notification.show('加载配置失败', 'error');
     }
@@ -169,13 +181,82 @@ export class ConfigManager {
       
       if (result.success) {
         notification.show('API Key 验证成功', 'success');
-        window.electronAPI.onBotEvent('API Key 设置成功，可以启动机器人了');
+        window.electronAPI.onBotEvent((event: string, data: any) => {
+          console.log('Bot event:', event, data);
+          // 在这里处理事件和数据
+        });
       } else {
         throw new Error(result.error || '验证失败');
       }
     } catch (error) {
       notification.show('API Key 验证失败', 'error');
       this.aitiwoKeyInput.classList.add('invalid');
+    }
+  }
+
+  async getSchedules(): Promise<ScheduleTask[]> {
+    try {
+      const config = await window.electronAPI.getConfig();
+      return config.schedules || [];
+    } catch (error) {
+      console.error('Failed to get schedules:', error);
+      return [];
+    }
+  }
+
+  async setSchedules(schedules: ScheduleTask[]): Promise<void> {
+    try {
+      const config = await window.electronAPI.getConfig();
+      config.schedules = schedules;
+      await window.electronAPI.invoke('save-config', config);
+    } catch (error) {
+      console.error('Failed to save schedules:', error);
+      throw error;
+    }
+  }
+
+  async addSchedule(task: ScheduleTask): Promise<void> {
+    try {
+      const schedules = await this.getSchedules();
+      schedules.push(task);
+      await this.setSchedules(schedules);
+    } catch (error) {
+      console.error('Failed to add schedule:', error);
+      throw error;
+    }
+  }
+
+  async updateSchedule(taskId: string, updates: Partial<ScheduleTask>): Promise<void> {
+    try {
+      const schedules = await this.getSchedules();
+      const index = schedules.findIndex(t => t.id === taskId);
+      if (index !== -1) {
+        schedules[index] = { ...schedules[index], ...updates };
+        await this.setSchedules(schedules);
+      }
+    } catch (error) {
+      console.error('Failed to update schedule:', error);
+      throw error;
+    }
+  }
+
+  async deleteSchedule(taskId: string): Promise<void> {
+    try {
+      const schedules = await this.getSchedules();
+      const filtered = schedules.filter(t => t.id !== taskId);
+      await this.setSchedules(filtered);
+    } catch (error) {
+      console.error('Failed to delete schedule:', error);
+      throw error;
+    }
+  }
+
+  async toggleSchedule(taskId: string, enabled: boolean): Promise<void> {
+    try {
+      await this.updateSchedule(taskId, { enabled });
+    } catch (error) {
+      console.error('Failed to toggle schedule:', error);
+      throw error;
     }
   }
 } 

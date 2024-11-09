@@ -16,29 +16,32 @@ import { errorNotificationManager } from './utils/error-notification'
 import { errorMonitor } from './utils/error-monitor'
 import * as dotenv from 'dotenv';
 import { Message, Contact, Room } from 'wechaty';
+import { types } from 'wechaty-puppet';
 import { AitiwoService } from './services/aitiwo';
+import { CronJob } from 'cron';
+
+// 添加 ExtendedWechaty 接口定义
+interface ExtendedWechaty extends Wechaty {
+  isEnabled?: boolean;
+  isLoggedIn?: boolean;
+  stop(): Promise<void>;
+  on(event: 'scan', listener: (qrcode: string, status: number) => void): this;
+  on(event: 'login', listener: (user: Contact) => void): this;
+  on(event: 'logout', listener: (user: Contact) => void): this;
+  on(event: 'message', listener: (message: Message) => void): this;
+}
 
 // 在顶部声明 wechaty 相关的变量
 const wechaty = require('wechaty')
 const { WechatyBuilder } = wechaty
-let botInstance: any = null;
+let botInstance: ExtendedWechaty | null = null;
 let qrcodeWindow: BrowserWindow | null = null;
 let isStarting = false;  // 添加启动状态标志
 
-// 在文件顶部添加消类型枚举
-enum MessageType {
-  Unknown = 0,
-  Attachment = 1,
-  Audio = 2,
-  Contact = 3,
-  Emoticon = 4,
-  Image = 6,
-  Text = 7,
-  Video = 8,
-  Url = 9,
-  MiniProgram = 10,
-  System = 11,
-  Recalled = 12
+
+// 在文件顶部声明接口
+interface MainWindow extends BrowserWindow {
+  webContents: Electron.WebContents
 }
 
 interface PlatformAPI {
@@ -47,16 +50,19 @@ interface PlatformAPI {
   GET_KB_CONFIG: string
 }
 
-interface MainWindow extends BrowserWindow {
-  webContents: Electron.WebContents
-}
-
+// 全局变量声明（只声明一次）
 let mainWindow: MainWindow
 let botProcess: Wechaty | null = null
 let connectionCheckInterval: NodeJS.Timeout | null = null
 let reconnectTimer: NodeJS.Timeout | null = null
 let retryCount = 0
 
+// 添加二维码相关的变量声明
+let qrcodePromise: Promise<string>;
+let qrcodeResolve: (value: string) => void;
+let qrcodeReject: (reason?: any) => void;
+
+// 常量声明
 const MAX_RETRIES = 5
 const CHECK_INTERVAL = 30000
 const RECONNECT_INTERVAL = 30000
@@ -83,7 +89,7 @@ async function reconnectBot(): Promise<void> {
 
 async function checkNetworkAndReconnect(): Promise<void> {
   try {
-    logger.info('Recovery', '检查网络连接');
+    logger.info('Recovery', '检查网络连');
     // 添加检查
     if (!mainWindow) {
       throw new AppError('主口未初始化', ErrorCode.SYSTEM_ERROR);
@@ -207,7 +213,7 @@ function wrapIpcHandler(methodName: string, handler: (...args: any[]) => Promise
 function handleWindowError(window: BrowserWindow) {
   window.webContents.on('crashed', (event) => {
     logger.error('Window', '渲染进程崩溃', event);
-    // 可以选择重新加载或关闭窗口
+    // 可以选择重新加或关闭窗口
     window.reload();
   });
 
@@ -281,6 +287,9 @@ function createWindow(): void {
       }
     });
   });
+
+  // 设置 scheduleManager 的主窗口
+  scheduleManager.setMainWindow(mainWindow);
 }
 
 // 修改 startBot 函数
@@ -291,25 +300,33 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
     // API Key 检查
     if (!config.aitiwoKey) {
       logger.warn('Bot', 'API Key 未设置');
-      mainWindow.webContents.send('bot-event', 'warning', {
+      mainWindow.webContents.send('key-message', {
+        type: 'warning',
         message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
       });
-      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
+      throw new AppError('请先设 API Key', ErrorCode.CONFIG_INVALID);
     }
 
     // 白名单检查
     if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
       logger.warn('Bot', '白名单未设置');
-      mainWindow.webContents.send('bot-event', 'warning', {
+      mainWindow.webContents.send('key-message', {
+        type: 'warning',
         message: '提示：当前未设置白名单，机器人将不会响应任何消息。请在"白名单配置"中设置。'
       });
     }
 
     // 检查是否已有实例在运行
     if (botInstance && await checkBotStatus()) {
-      logger.info('Bot', '机器人实例已存在且在线');
+      logger.info('Bot', '机器人例已存在且在线');
       return '';
     }
+
+    // 初始化 Promise
+    qrcodePromise = new Promise<string>((resolve, reject) => {
+      qrcodeResolve = resolve;
+      qrcodeReject = reject;
+    });
 
     // 创建新实例
     botInstance = WechatyBuilder.build({
@@ -318,186 +335,192 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
       puppetOptions: {
         uos: true
       }
-    });
+    }) as ExtendedWechaty;
 
-    logger.info('Bot', '机器人实例创建成功');
-    scheduleManager.setBot(botInstance);
+    // 添加自定义属性
+    botInstance.isEnabled = true;
 
-    return new Promise<string>((resolve, reject) => {
-      // 设置事件处理器
-      botInstance.on('scan', async (qrcode: string, status: number) => {
-        try {
-          logger.info('Bot', '收到扫码事件', { status });
-          const dataUrl = await QRCode.toDataURL(qrcode);
-          resolve(dataUrl);
-        } catch (error) {
-          logger.error('Bot', '生成二维码失败', error);
-          reject(new AppError('生成二维码失败', ErrorCode.BOT_INIT_FAILED));
-        }
-      });
-
-      botInstance.on('login', (user: any) => {
-        logger.info('Bot', '登录成功', { userName: user.name() });
-        mainWindow.webContents.send('bot-event', 'login', { userName: user.name() });
-      });
-
-      botInstance.on('logout', (user: any) => {
-        logger.info('Bot', '已登出', { userName: user.name() });
-        mainWindow.webContents.send('bot-event', 'logout', { userName: user.name() });
-      });
-
-      // 添加消息处理
-      botInstance.on('message', async (message: any) => {
-        try {
-          // 使用枚举来判断消息类型
-          if (message.type() === MessageType.System || message.type() === MessageType.Recalled) {
-            logger.debug('Bot', '忽略系统消息或撤回消息');
-            return;
-          }
-
-          const talker = message.talker() as Contact;
-          const room = message.room() as Room;
-          const text = message.text();
-
-          // 如果消息内容为空，直接返回
-          if (!text.trim()) {
-            return;
-          }
-          
-          // 详细的日志记录
-          logger.info('Bot', '收到新消息', {
-            from: talker?.name(),
-            text: text,
-            room: room ? await room.topic() : undefined,
-            messageType: message.type(),
-            timestamp: message.date()
-          });
-
-          // 过滤自己发送的消息
-          if (message.self()) {
-            logger.debug('Bot', '忽略自己发送的消息');
-            return;
-          }
-
-          // 获取最新配置，避免使用缓存的白名单
-          const config = ConfigManager.getConfig();
-
-          // 白名单验证
+    // 使用类型断言来处理事件绑定
+    if (botInstance) {
+      (botInstance as Wechaty)
+        .on('scan', async (qrcode: string, status: number) => {
           try {
-            const talkerName = talker?.name() || '';
-            let roomTopic = '';
-            
-            if (room) {
-              try {
-                roomTopic = await room.topic();
-              } catch (error) {
-                logger.error('Bot', '获取群名失败', error);
-                roomTopic = (room as any).id || '未知群聊';
-              }
-            }
-
-            // 详细的白名单检查日志
-            logger.debug('Bot', '白名单检查', {
-              talkerName,
-              roomTopic,
-              inContactWhitelist: config.contactWhitelist.includes(talkerName),
-              inRoomWhitelist: config.roomWhitelist.includes(roomTopic)
-            });
-
-            const isAllowedContact = talker && config.contactWhitelist.includes(talkerName);
-            const isAllowedRoom = room && config.roomWhitelist.includes(roomTopic);
-
-            if (!isAllowedContact && !isAllowedRoom) {
-              logger.info('Bot', '消息源不在白名单中，忽略', {
-                contact: talkerName,
-                room: roomTopic
-              });
+            logger.info('Bot', '收到扫码事件', { status });
+            const dataUrl = await QRCode.toDataURL(qrcode);
+            qrcodeResolve(dataUrl);
+          } catch (error) {
+            logger.error('Bot', '生成二维码失败', error);
+            qrcodeReject(new AppError('生成二维码失败', ErrorCode.BOT_INIT_FAILED));
+          }
+        })
+        .on('login', (user: any) => {
+          logger.info('Bot', '登录成功', { userName: user.name() });
+          closeQRCodeWindow();
+          mainWindow.webContents.send('key-message', {
+            type: 'success',
+            message: `微信登录成功，用户：${user.name()}`
+          });
+          mainWindow.webContents.send('bot-event', 'login', { 
+            userName: user.name(),
+            status: 'running',
+            message: '机器人已启动并正在运行'
+          });
+        })
+        .on('logout', (user: any) => {
+          logger.info('Bot', '已登出', { userName: user.name() });
+          mainWindow.webContents.send('bot-event', 'logout', { userName: user.name() });
+        })
+        .on('message', async (message: any) => {
+          try {
+            // 使用正确的枚举值
+            if (message.type() === types.Message.Unknown || message.type() === types.Message.Recalled) {
+              logger.debug('Bot', '忽略未知消息或撤回消息');
               return;
             }
 
-            // 处理群名变更情况
-            if (room && !isAllowedRoom && roomTopic) {
-              // 检查是否是群名变更导致的不匹配
-              const similarRoom = config.roomWhitelist.find(name => 
-                name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
-              );
-              
-              if (similarRoom) {
-                logger.info('Bot', '检测到群名变更', {
-                  oldName: similarRoom,
-                  newName: roomTopic
-                });
-                
-                // 更新白名单中的群名
-                const updatedRooms = config.roomWhitelist.map(name => 
-                  name === similarRoom ? roomTopic : name
-                );
-                
-                await ConfigManager.setWhitelists(config.contactWhitelist, updatedRooms);
-                logger.info('Bot', '已更新群名白名单');
-              }
+            const talker = message.talker() as Contact;
+            const room = message.room() as Room;
+            const text = message.text();
+
+            // 如果消息内容为空，直接返回
+            if (!text.trim()) {
+              return;
+            }
+            
+            // 详细的日志记录
+            logger.info('Bot', '收到新消息', {
+              from: talker?.name(),
+              text: text,
+              room: room ? await room.topic() : undefined,
+              messageType: message.type(),
+              timestamp: message.date()
+            });
+
+            // 过滤自己发送的消息
+            if (message.self()) {
+              logger.debug('Bot', '忽略自己发送的消息');
+              return;
             }
 
-            // 调用 AI 接口获取回复
-            try {
-              const response = await callAIWithRetry(text);
+            // 获取最新配置，避免使用缓存的白名单
+            const config = ConfigManager.getConfig();
 
-              // 发送回复
+            // 白名单验证
+            try {
+              const talkerName = talker?.name() || '';
+              let roomTopic = '';
+              
               if (room) {
-                await room.say(response);
-                logger.info('Bot', '群聊回复成功', {
-                  room: roomTopic,
-                  message: response
-                });
-              } else if (talker) {
-                await (talker as any).say(response);
-                logger.info('Bot', '私聊回复成功', {
+                try {
+                  roomTopic = await room.topic();
+                } catch (error) {
+                  logger.error('Bot', '获取群名失败', error);
+                  roomTopic = (room as any).id || '未知群聊';
+                }
+              }
+
+              // 详细的白名单检查日志
+              logger.debug('Bot', '白名单检查', {
+                talkerName,
+                roomTopic,
+                inContactWhitelist: config.contactWhitelist.includes(talkerName),
+                inRoomWhitelist: config.roomWhitelist.includes(roomTopic)
+              });
+
+              const isAllowedContact = talker && config.contactWhitelist.includes(talkerName);
+              const isAllowedRoom = room && config.roomWhitelist.includes(roomTopic);
+
+              if (!isAllowedContact && !isAllowedRoom) {
+                logger.info('Bot', '消息源不在白名单中，忽略', {
                   contact: talkerName,
-                  message: response
+                  room: roomTopic
                 });
+                return;
+              }
+
+              // 处理群名变更情况
+              if (room && !isAllowedRoom && roomTopic) {
+                // 检查是否是群名变更导致的不匹配
+                const similarRoom = config.roomWhitelist.find(name => 
+                  name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
+                );
+                
+                if (similarRoom) {
+                  logger.info('Bot', '检测到群名变更', {
+                    oldName: similarRoom,
+                    newName: roomTopic
+                  });
+                  
+                  // 更新白名单中的群名
+                  const updatedRooms = config.roomWhitelist.map(name => 
+                    name === similarRoom ? roomTopic : name
+                  );
+                  
+                  await ConfigManager.setWhitelists(config.contactWhitelist, updatedRooms);
+                  logger.info('Bot', '已更新群名白名单');
+                }
+              }
+
+              // 调用 AI 接口获取回复
+              try {
+                const response = await callAIWithRetry(text);
+
+                // 发送回复
+                if (room) {
+                  await room.say(response);
+                  logger.info('Bot', '群聊回复成功', {
+                    room: roomTopic,
+                    message: response
+                  });
+                } else if (talker) {
+                  await (talker as any).say(response);
+                  logger.info('Bot', '私聊回复成功', {
+                    contact: talkerName,
+                    message: response
+                  });
+                }
+
+              } catch (error) {
+                logger.error('Bot', 'AI 回复失败', {
+                  error: error instanceof Error ? error.message : '未知错误',
+                  contact: talkerName,
+                  room: roomTopic,
+                  originalMessage: text
+                });
+                
+                const errorMessage = '抱歉，我现在无法回复，请稍后再试';
+                try {
+                  if (room) {
+                    await room.say(errorMessage);
+                  } else if (talker) {
+                    await (talker as any).say(errorMessage);
+                  }
+                } catch (sendError) {
+                  logger.error('Bot', '发送错误消息失败', sendError);
+                }
               }
 
             } catch (error) {
-              logger.error('Bot', 'AI 回复失败', {
-                error: error instanceof Error ? error.message : '未知错误',
-                contact: talkerName,
-                room: roomTopic,
-                originalMessage: text
-              });
-              
-              const errorMessage = '抱歉，我现在无法回复，请稍后再试';
-              try {
-                if (room) {
-                  await room.say(errorMessage);
-                } else if (talker) {
-                  await (talker as any).say(errorMessage);
-                }
-              } catch (sendError) {
-                logger.error('Bot', '发送错误消息失败', sendError);
-              }
+              logger.error('Bot', '白名单验证失败', error);
             }
 
           } catch (error) {
-            logger.error('Bot', '白名单验证失败', error);
+            logger.error('Bot', '处理消息失败', error);
           }
-
-        } catch (error) {
-          logger.error('Bot', '处理消息失败', error);
-        }
-      });
-
-      // 启动机器人
-      botInstance.start()
-        .then(() => {
-          logger.info('Bot', '机器人启动成功');
-          // 不要在这里 resolve，让 scan 事件处理器去 resolve
-        })
-        .catch((error: Error) => {
-          logger.error('Bot', '启动机器人失败', error);
-          reject(new AppError('启动机器人失败', ErrorCode.BOT_INIT_FAILED));
         });
-    });
+
+      await (botInstance as Wechaty).start();
+      logger.info('Bot', '机器人启动成功');
+
+      return await qrcodePromise;
+    }
+
+    throw new Error('创建机器人实例失败');
   } catch (error) {
+    // 如果出错，确保 reject Promise
+    if (qrcodeReject) {
+      qrcodeReject(error);
+    }
     logger.error('Bot', '创建机器人实例失败', error);
     throw new AppError('创建机器人实例失败', ErrorCode.BOT_INIT_FAILED);
   }
@@ -562,150 +585,6 @@ function scheduleReconnect(): void {
   }, RECONNECT_INTERVAL)
 }
 
-// 配置相关的 IPC 处理器
-ipcMain.handle('get-config', async () => {
-  try {
-    return ConfigManager.getConfig();
-  } catch (error) {
-    logger.error('Main', '获取配置失败', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('save-aitiwo-key', wrapIpcHandler('save-aitiwo-key', async (event, key: string) => {
-  await ConfigManager.setAitiwoKey(key);
-  return { success: true };
-}));
-
-// 白名单相关的 IPC 处理器
-ipcMain.handle('save-whitelist', wrapIpcHandler('save-whitelist', async (event, { contacts, rooms }) => {
-  ConfigManager.setWhitelists(contacts, rooms);
-  return { success: true };
-}));
-
-ipcMain.handle('export-whitelist', async () => {
-  try {
-    const config = ConfigManager.getConfig();
-    return {
-      success: true,
-      data: {
-        contacts: config.contactWhitelist,
-        rooms: config.roomWhitelist
-      }
-    };
-  } catch (error) {
-    logger.error('Main', '导出白名单失败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '导出失败'
-    };
-  }
-});
-
-ipcMain.handle('import-whitelist', async (event, data: { contacts: string[], rooms: string[] }) => {
-  try {
-    await ConfigManager.setWhitelists(data.contacts, data.rooms);
-    return { success: true };
-  } catch (error) {
-    logger.error('Main', '导入白名单失败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '导入失败'
-    };
-  }
-});
-
-// 机器人相关的 IPC 处理器
-ipcMain.handle('start-bot', async () => {
-  try {
-    const config = ConfigManager.getConfig();
-    if (!config.aitiwoKey) {
-      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
-    }
-
-    if (!mainWindow) {
-      throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
-    }
-
-    // 如果已经在启动中，返回提示
-    if (isStarting) {
-      return { 
-        success: false,
-        error: '机器人正在启动中，请稍候...'
-      };
-    }
-
-    isStarting = true;
-    const qrcode = await startBot(config, mainWindow);
-    
-    // 如果有二维码，创建独立窗口
-    if (qrcode) {
-      createQRCodeWindow(qrcode);
-    }
-    
-    return { 
-      success: true,
-      message: qrcode ? '请在新窗口中扫码登录' : '机器人已启动'
-    };
-  } catch (error) {
-    logger.error('Main', '启动机器人失败', error);
-    return {
-      success: false,
-      error: error instanceof AppError ? error.message : '启动失败'
-    };
-  } finally {
-    isStarting = false;
-  }
-});
-
-// 定时任务相关的 IPC 处理器
-ipcMain.handle('get-schedule-tasks', async () => {
-  try {
-    return ConfigManager.getConfig().schedules;
-  } catch (error) {
-    logger.error('Main', '获取定时任务失败', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('add-schedule-task', async (event, task) => {
-  try {
-    await scheduleManager.addTask(task);
-    return { success: true };
-  } catch (error) {
-    logger.error('Main', '添加定时任务失败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '添加失败'
-    };
-  }
-});
-
-ipcMain.handle('toggle-schedule-task', async (event, taskId: string, enabled: boolean) => {
-  try {
-    await scheduleManager.toggleTask(taskId, enabled);
-    return { success: true };
-  } catch (error) {
-    logger.error('Main', '切换任务状态失败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '操作失败'
-    };
-  }
-});
-
-ipcMain.handle('delete-schedule-task', async (event, taskId: string) => {
-  try {
-    await scheduleManager.deleteTask(taskId);
-    return { success: true };
-  } catch (error) {
-    logger.error('Main', '删除任务败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '删除失败'
-    };
-  }
-});
 
 function setupAutoUpdater(): void {
   autoUpdater.logger = updateLogger
@@ -849,13 +728,6 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
     qrcodeWindow = null;
   });
 
-  // 录成功时关闭窗口
-  botInstance?.on('login', () => {
-    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-      qrcodeWindow.close();
-    }
-  });
-  
   return qrcodeWindow;
 }
 
@@ -923,7 +795,7 @@ async function checkBotStatus(): Promise<boolean> {
   }
 }
 
-// 修改获取实函数
+// 修改获取实数
 async function getBotInstance(config: any): Promise<any> {
   try {
     // 防止重复启动
@@ -1041,7 +913,7 @@ async function migrateWhitelistConfig() {
     // 获取当前配置
     const currentConfig = ConfigManager.getConfig();
     
-    // 如果当前配置中没有白名单数据，则进行迁移
+    // 如果当前配置中没有白名单据，则进行迁移
     if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
       logger.info('Config', '开始迁移白名单配置');
       
@@ -1090,45 +962,139 @@ async function callAIWithRetry(message: string, retryCount = 3) {
   }
 }
 
-// 添加 IPC 处理器
-ipcMain.handle('stopBot', async () => {
-  try {
+
+// 添加关闭二维码窗口的函数
+function closeQRCodeWindow() {
+  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+    qrcodeWindow.close();
+    qrcodeWindow = null;
+  }
+}
+
+
+// 1. 在文件顶部定义所有 IPC 通道名称
+const IPC_CHANNELS = {
+  // 配置相关
+  GET_CONFIG: 'getConfig',
+  SAVE_WHITELIST: 'save-whitelist',
+  SAVE_AITIWO_KEY: 'save-aitiwo-key',
+  IMPORT_WHITELIST: 'import-whitelist',
+  EXPORT_WHITELIST: 'export-whitelist',
+  
+  // 机器人相关
+  START_BOT: 'startBot',
+  STOP_BOT: 'stopBot',
+  
+  // 定时任务相关
+  GET_SCHEDULE_TASKS: 'getScheduleTasks',
+  ADD_SCHEDULE_TASK: 'addScheduleTask',
+  TOGGLE_SCHEDULE_TASK: 'toggleScheduleTask',
+  DELETE_SCHEDULE_TASK: 'deleteScheduleTask'
+} as const;
+
+// 2. 集中定义所有 IPC 处理器
+const ipcHandlers = {
+  // 配置相关处理器
+  [IPC_CHANNELS.GET_CONFIG]: async () => {
+    const config = ConfigManager.getConfig();
+    return {
+      roomWhitelist: config.roomWhitelist || [],
+      contactWhitelist: config.contactWhitelist || [],
+      aitiwoKey: config.aitiwoKey,
+      schedules: config.schedules || []
+    };
+  },
+
+  [IPC_CHANNELS.SAVE_WHITELIST]: async (event: any, { contacts, rooms }: any) => {
+    await ConfigManager.setWhitelists(contacts, rooms);
+    return { success: true };
+  },
+
+  [IPC_CHANNELS.SAVE_AITIWO_KEY]: async (event: any, key: string) => {
+    await ConfigManager.setAitiwoKey(key);
+    return { success: true };
+  },
+
+  // 机器人相关处理器
+  [IPC_CHANNELS.START_BOT]: async () => {
+    const config = ConfigManager.getConfig();
+    if (!config.aitiwoKey) {
+      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
+    }
+    if (!mainWindow) {
+      throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
+    }
+    const qrcode = await startBot(config, mainWindow);
+    return { 
+      success: true,
+      message: qrcode ? '请扫码登录' : '机器人已启动'
+    };
+  },
+
+  [IPC_CHANNELS.STOP_BOT]: async () => {
     if (!botInstance) {
+      return { success: true, message: '机器人已经停止' };
+    }
+    botInstance.isEnabled = false;
+    return { success: true, message: '机器人已暂停自动回复' };
+  },
+
+  // 定时任务相关处理器
+  [IPC_CHANNELS.GET_SCHEDULE_TASKS]: async () => {
+    return ConfigManager.getConfig().schedules || [];
+  },
+
+  [IPC_CHANNELS.ADD_SCHEDULE_TASK]: async (event: any, task: any) => {
+    ConfigManager.addScheduleTask(task);
+    return { success: true };
+  },
+
+  [IPC_CHANNELS.TOGGLE_SCHEDULE_TASK]: async (event: any, taskId: string, enabled: boolean) => {
+    ConfigManager.updateScheduleTask(taskId, enabled);
+    return { success: true };
+  },
+
+  [IPC_CHANNELS.DELETE_SCHEDULE_TASK]: async (event: any, taskId: string) => {
+    ConfigManager.deleteScheduleTask(taskId);
+    return { success: true };
+  }
+};
+
+// 3. 统一的错误处理包装器
+function wrapHandler(handler: (...args: any[]) => Promise<any>) {
+  return async (...args: any[]) => {
+    try {
+      return await handler(...args);
+    } catch (error) {
+      logger.error('IPC', '处理器执行失败', error);
       return {
-        success: true,
-        message: '机器人已经停止'
+        success: false,
+        error: error instanceof AppError ? error.message : '操作失败，请稍后重试'
       };
     }
+  };
+}
 
-    // 设置标志位，阻止消息处理
-    botInstance.isEnabled = false;
+// 4. 统一注册所有处理器
+function registerIpcHandlers() {
+  Object.entries(ipcHandlers).forEach(([channel, handler]) => {
+    ipcMain.handle(channel, wrapHandler(handler));
+  });
+}
 
-    logger.info('Bot', '机器人已停止自动回复');
+// 5. 在应用启动时注册
+app.whenReady().then(async () => {
+  try {
+    // 注册所有 IPC 处理器
+    registerIpcHandlers();
     
-    // 通知渲染进程
-    mainWindow.webContents.send('bot-event', 'status', {
-      message: '机器人已停止自动回复消息'
-    });
-
-    return {
-      success: true,
-      message: '机器人已停止自动回复'
-    };
+    // 创建窗口
+    createWindow();
+    
+    // 设置自动更新
+    setupAutoUpdater();
   } catch (error) {
-    logger.error('Bot', '停止机器人失败', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : '停止失败'
-    };
+    logger.error('App', '应用启动失败', error);
+    app.quit();
   }
-});
-
-// 修改消息处理部分
-botInstance.on('message', async (message: any) => {
-  // 如果机器人已停止，不处理消息
-  if (!botInstance.isEnabled) {
-    return;
-  }
-  
-  // ... 其余消息处理代码保持不变
 });

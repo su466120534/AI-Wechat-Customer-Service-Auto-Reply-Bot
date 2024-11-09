@@ -12,50 +12,132 @@ import { ConfigManager } from './modules/config-manager';
 import { LogLevel } from '../shared/types/logger';
 import { LogViewer } from './components/log-viewer';
 import { rendererLogger } from './utils/renderer-logger';
+import { KeyMessages } from './components/key-messages';
 
 // 初始化UI组件
 const loading = new LoadingUI();
 
+// 新建一个 KeyMessages 组件来管理运行状态消息
+const keyMessages = new KeyMessages();
+
 class App {
   private logger: Logger;
-  private scheduleManager: ScheduleManager;
-  private botStatus: BotStatus;
-  private qrcodeManager: QRCodeManager;
-  private configManager: ConfigManager;
-  private logViewer: LogViewer;
+  private scheduleManager: ScheduleManager | null = null;
+  private botStatus: BotStatus | null = null;
+  private qrcodeManager: QRCodeManager | null = null;
+  private configManager: ConfigManager | null = null;
+  private logViewer: LogViewer | null = null;
 
   constructor() {
-    // 初始化各个模块
     this.logger = rendererLogger;
-    this.scheduleManager = new ScheduleManager(document.getElementById('scheduleItems') as HTMLElement);
-    this.botStatus = new BotStatus();
-    this.qrcodeManager = new QRCodeManager(document.getElementById('qrcode') as HTMLElement);
-    this.configManager = new ConfigManager();
-    this.logViewer = new LogViewer('logViewer');
+    this.init();
+  }
 
-    // 暴露给全局使用
-    window.scheduleManager = this.scheduleManager;
+  private init() {
+    // 等待 DOM 加载完成
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => this.initComponents());
+    } else {
+      this.initComponents();
+    }
+  }
 
-    this.bindEvents();
+  private initComponents() {
+    try {
+      // 初始化各个组件
+      const scheduleContainer = document.getElementById('scheduleItems');
+      if (scheduleContainer) {
+        this.scheduleManager = new ScheduleManager(scheduleContainer);
+        // 暴露给全局使用
+        window.scheduleManager = this.scheduleManager;
+      }
+
+      this.botStatus = new BotStatus();
+      
+      const qrcodeContainer = document.getElementById('qrcode');
+      if (qrcodeContainer) {
+        this.qrcodeManager = new QRCodeManager(qrcodeContainer);
+      }
+
+      this.configManager = new ConfigManager();
+      this.logViewer = new LogViewer('logViewer');
+
+      // 绑定事件
+      this.bindEvents();
+      // 初始化标签切换
+      this.initTabSwitching();
+
+      // 检查初始配置
+      this.checkInitialConfig();
+
+    } catch (error) {
+      this.logger.error('App', '初始化组件失败', error);
+      notification.show('应用初始化失败，请刷新页面重试', 'error');
+    }
+  }
+
+  private async checkInitialConfig() {
+    try {
+      const config = await window.electronAPI.getConfig();
+      
+      // 检查 API Key
+      if (!config.aitiwoKey) {
+        keyMessages.addMessage('请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。', 'warning');
+      }
+
+      // 检查白名单
+      if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
+        keyMessages.addMessage('提示：当前未设置白名单，机器人将不会响应任何消息。请在"白名单配置"中设置。', 'warning');
+      }
+    } catch (error) {
+      this.logger.error('App', '检查配置失败', error);
+    }
   }
 
   private bindEvents() {
     // 启动机器人按钮事件
-    const startBotButton = document.getElementById('startBot') as HTMLButtonElement;
-    startBotButton.addEventListener('click', () => this.handleStartBot());
+    const startBotButton = document.getElementById('startBot');
+    if (startBotButton) {
+      startBotButton.addEventListener('click', () => this.handleStartBot());
+    }
 
     // 添加停止按钮事件
-    const stopBotButton = document.getElementById('stopBot') as HTMLButtonElement;
-    stopBotButton.addEventListener('click', () => this.handleStopBot());
+    const stopBotButton = document.getElementById('stopBot');
+    if (stopBotButton) {
+      stopBotButton.addEventListener('click', () => this.handleStopBot());
+    }
 
     // 监听机器人事件
     this.initBotEventListeners();
+
+    // 监听配置变更
+    this.initConfigListeners();
+  }
+
+  private initConfigListeners() {
+    // API Key 输入框
+    const apiKeyInput = document.getElementById('aitiwoKey') as HTMLInputElement;
+    if (apiKeyInput) {
+      apiKeyInput.addEventListener('change', async () => {
+        try {
+          const result = await window.electronAPI.invoke('save-aitiwo-key', apiKeyInput.value);
+          if (result.success) {
+            keyMessages.addMessage('API Key 设置成功，已通过验证', 'success');
+            keyMessages.addMessage('现在您可以点击"启动机器人"按钮开始使用了', 'info');
+          }
+        } catch (error) {
+          keyMessages.addMessage('API Key 设置失败，请检查是否正确', 'error');
+        }
+      });
+    }
   }
 
   private async handleStartBot() {
+    if (!this.botStatus) return;
     try {
       this.logger.info('bot', '正在启动机器人...');
       this.botStatus.updateStatus('waiting', '正在启动机器人...');
+      keyMessages.addMessage('正在启动机器人...', 'info');
       
       const result = await window.electronAPI.startBot();
       
@@ -63,6 +145,8 @@ class App {
         const message = result.message || '机器人启动成功';
         this.logger.info('bot', message);
         this.botStatus.updateStatus('waiting', message);
+        keyMessages.addMessage(message, 'success');
+        keyMessages.addMessage('请使用微信扫描二维码登录', 'info');
       } else {
         throw new Error(result.error || '启动失败');
       }
@@ -70,20 +154,24 @@ class App {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       this.logger.error('bot', `启动失败: ${errorMessage}`);
       this.botStatus.updateStatus('error', `启动失败: ${errorMessage}`);
+      keyMessages.addMessage(`启动失败: ${errorMessage}`, 'error');
     }
   }
 
   private async handleStopBot() {
+    if (!this.botStatus) return;
     try {
       this.logger.info('bot', '正在停止机器人...');
       this.botStatus.updateStatus('waiting', '正在停止机器人...');
+      keyMessages.addMessage('正在停止机器人自动回复...', 'info');
       
       const result = await window.electronAPI.stopBot();
       
       if (result.success) {
         this.logger.info('bot', '机器人已停止自动回复消息');
         this.botStatus.updateStatus('stopped', '机器人已停止自动回复消息');
-        this.botStatus.showWarning('如需退出微信登录，请在手机端点击退出该设备');
+        keyMessages.addMessage('机器人已停止自动回复，微信仍保持登录状态', 'warning');
+        keyMessages.addMessage('如需退出微信登录，请在手机微信上操作', 'info');
       } else {
         throw new Error(result.error || '停止失败');
       }
@@ -91,13 +179,17 @@ class App {
       const errorMessage = error instanceof Error ? error.message : '未知错误';
       this.logger.error('bot', `停止失败: ${errorMessage}`);
       this.botStatus.updateStatus('error', `停止失败: ${errorMessage}`);
+      keyMessages.addMessage(`停止失败: ${errorMessage}`, 'error');
     }
   }
 
   private initBotEventListeners() {
+    if (!this.qrcodeManager) return;
+
     // 监听二维码生成
     window.electronAPI.onQrcodeGenerated((qrcode: string) => {
-      this.qrcodeManager.show(qrcode);
+      this.qrcodeManager?.show(qrcode);
+      keyMessages.addMessage('二维码已生成，请使用微信扫码登录', 'info');
     });
 
     // 监听机器人事件
@@ -123,17 +215,27 @@ class App {
           break;
       }
     });
+
+    // 监听关键消息
+    window.electronAPI.on('key-message', (data: { type: 'info' | 'success' | 'warning' | 'error', message: string }) => {
+      keyMessages.addMessage(data.message, data.type);
+    });
   }
 
   private handleLoginEvent(data: any) {
+    if (!this.qrcodeManager || !this.botStatus) return;
     this.qrcodeManager.hide();
     this.logger.info('bot', `微信登录成功: ${data.userName}`);
     this.botStatus.updateStatus('running', '机器人已登录并运行中');
+    keyMessages.addMessage(`微信登录成功，用户：${data.userName}`, 'success');
+    keyMessages.addMessage('机器人开始工作，将自动回复消息', 'info');
   }
 
   private handleLogoutEvent(data: any) {
+    if (!this.botStatus) return;
     this.logger.warning('bot', `用户已登出: ${data.userName}`);
     this.botStatus.updateStatus('stopped', '机器人已登出');
+    keyMessages.addMessage(`微信已登出，用户：${data.userName}`, 'warning');
   }
 
   private handleMessageEvent(data: any) {
@@ -141,25 +243,30 @@ class App {
   }
 
   private handleErrorEvent(data: any) {
-    this.logger.error('bot', data.message || '发生错误');
-    this.botStatus.updateStatus('error', data.message);
+    if (!this.botStatus) return;
+    const errorMessage = data.message || '发生错误';
+    this.logger.error('bot', errorMessage);
+    this.botStatus.updateStatus('error', errorMessage);
+    keyMessages.addMessage(errorMessage, 'error');
   }
 
   private handleStatusEvent(data: any) {
+    if (!this.botStatus) return;
     if (data.message.includes('API Key')) {
-      // API Key 相关状态更新
       this.botStatus.updateStatus('waiting', data.message);
+      keyMessages.addMessage(data.message, 'warning');
     } else if (data.message.includes('重新连接')) {
-      this.botStatus.updateConnectionStatus('connecting', '正在重新连接...');
-      this.logger.warning('bot', '检测到连接断开，正在尝试重新连接');
+      this.botStatus.updateStatus('waiting');
+      keyMessages.addMessage('检测到连接断开，正在尝试重新连接...', 'warning');
     } else if (data.message.includes('重连成功')) {
-      this.botStatus.updateConnectionStatus('reconnected', '连接已恢复');
-      this.logger.success('bot', '连接已恢复');
+      this.botStatus.updateStatus('running');
+      keyMessages.addMessage('网络连接已恢复', 'success');
     }
   }
 
   private handleWarningEvent(data: any) {
-    this.botStatus.showWarning(data.message);
+    if (!this.botStatus) return;
+    keyMessages.addMessage(data.message, 'warning');
   }
 
   private initTabSwitching() {
@@ -189,16 +296,7 @@ class App {
       }
     });
   }
-
-  init() {
-    document.addEventListener('DOMContentLoaded', () => {
-      this.initTabSwitching();
-      this.configManager.loadConfig();
-      this.scheduleManager.loadTasks();
-    });
-  }
 }
 
-// 创建并初始化应用
+// 创建应用实例
 const app = new App();
-app.init();

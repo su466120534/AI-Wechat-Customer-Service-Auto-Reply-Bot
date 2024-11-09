@@ -30,6 +30,13 @@ declare global {
       }>;
       onBotEvent: (callback: (event: string, data: any) => void) => void;
       stopBot: () => Promise<{ success: boolean; message?: string; error?: string }>;
+      onScheduleError: (callback: (error: any) => void) => void;
+      onTaskStatusUpdate: (callback: (update: {
+        taskId: string;
+        status: 'running' | 'success' | 'failed';
+        message?: string;
+        progress?: number;
+      }) => void) => void;
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;
@@ -41,6 +48,10 @@ declare global {
     message: string;
     cron: string;
     enabled: boolean;
+    lastRun?: string;
+    nextRun?: string;
+    lastStatus?: 'success' | 'failed';
+    histories?: TaskHistory[];
   }
 
   interface Config {
@@ -53,6 +64,13 @@ declare global {
       lastLoginTime?: string;
       userName?: string;
     };
+  }
+
+  interface TaskHistory {
+    taskId: string;
+    executionTime: string;
+    status: 'success' | 'failed';
+    error?: string;
   }
 }
 

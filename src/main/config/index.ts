@@ -60,8 +60,11 @@ class ConfigManager {
         }
     }
 
-    public saveConfig() {
+    public saveConfig(newConfig?: Config) {
         try {
+            if (newConfig) {
+                this.config = newConfig;
+            }
             fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
             logger.info('Config', '配置保存成功');
         } catch (error) {

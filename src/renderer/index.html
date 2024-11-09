@@ -10,7 +10,7 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>WeChat Bot 客户端</h1>
+            <h1>企业AI知识库客服</h1>
         </header>
 
         <div class="tabs">
@@ -32,31 +32,15 @@
             <div class="form-group">
                 <label>AITIWO API Key:</label>
                 <input type="text" id="aitiwoKey" placeholder="请输入 AITIWO API Key">
-                <div class="form-help">在 AITIWO 平台获取 API Key</div>
+                <div class="form-help">在qiye.aitiwo.com获取 API Key</div>
                 <div class="api-status"></div>
             </div>
             <div class="bot-control">
                 <button id="startBot" class="btn-primary">启动机器人</button>
-                <div class="bot-status-box">
-                    <div class="status-icon"></div>
-                    <div class="status-message">等待启动...</div>
-                    <div class="connection-status"></div>
+                <button id="stopBot" style="display: none;">停止机器人</button>
+                <div id="keyMessages" class="key-messages">
+                    <div class="message-list"></div>
                 </div>
-            </div>
-            <div class="qrcode-container" id="qrcode">
-                <div class="qrcode-loading">
-                    <div class="spinner"></div>
-                    <p>正在生成二维码...</p>
-                </div>
-                <div class="qrcode-status"></div>
-                <div class="qrcode-timeout">
-                    <p>二维码已过期</p>
-                    <button class="btn-primary refresh-qrcode">刷新二维码</button>
-                </div>
-            </div>
-            <div class="key-messages">
-                <h3>运行状态</h3>
-                <div class="message-list" id="keyMessages"></div>
             </div>
         </div>
 
@@ -83,22 +67,65 @@
                 <h3>添加定时任务</h3>
                 <div class="form-group">
                     <label>群名称:</label>
-                    <input type="text" id="scheduleRoom" placeholder="输入群名称">
+                    <div class="room-tags-container">
+                        <div class="room-tags" id="roomTags"></div>
+                        <input type="text" id="roomInput" placeholder="输入群名搜索或添加">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>消息内容:</label>
                     <textarea id="scheduleMessage" placeholder="输入要发送的消息"></textarea>
                 </div>
                 <div class="form-group">
-                    <label>定时规则 (Cron):</label>
-                    <input type="text" id="scheduleCron" placeholder="例如: 0 0 8 * * *">
-                    <div class="cron-helper">
-                        <p>常用示例:</p>
-                        <ul>
-                            <li>🕐 每天早8点: 0 0 8 * * *</li>
-                            <li>📅 每周一早8点: 0 0 8 * * 1</li>
-                            <li>📆 每月1号早8点: 0 0 8 1 * *</li>
-                        </ul>
+                    <label>执行时间:</label>
+                    <div class="time-picker">
+                        <input type="time" id="scheduleTime" class="time-input">
+                        <select id="repeatType" class="repeat-select">
+                            <option value="once">不重复</option>
+                            <option value="daily">每天</option>
+                            <option value="weekly">每周</option>
+                            <option value="monthly">每月</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group repeat-weekly" style="display: none;">
+                    <label>重复日期:</label>
+                    <div class="weekday-selector">
+                        <label><input type="checkbox" value="1"> 周一</label>
+                        <label><input type="checkbox" value="2"> 周二</label>
+                        <label><input type="checkbox" value="3"> 周三</label>
+                        <label><input type="checkbox" value="4"> 周四</label>
+                        <label><input type="checkbox" value="5"> 周五</label>
+                        <label><input type="checkbox" value="6"> 周六</label>
+                        <label><input type="checkbox" value="0"> 周日</label>
+                    </div>
+                </div>
+                <div class="form-group repeat-monthly" style="display: none;">
+                    <label>每月:</label>
+                    <select id="monthlyType" class="monthly-select">
+                        <option value="date">指定日期</option>
+                        <option value="week">指定星期</option>
+                    </select>
+                    <div class="monthly-date">
+                        <input type="number" min="1" max="31" id="monthlyDate" placeholder="日期">
+                    </div>
+                    <div class="monthly-week" style="display: none;">
+                        <select id="weekOrder">
+                            <option value="1">第一个</option>
+                            <option value="2">第二个</option>
+                            <option value="3">第三个</option>
+                            <option value="4">第四个</option>
+                            <option value="-1">最后一个</option>
+                        </select>
+                        <select id="weekDay">
+                            <option value="1">周一</option>
+                            <option value="2">周二</option>
+                            <option value="3">周三</option>
+                            <option value="4">周四</option>
+                            <option value="5">周五</option>
+                            <option value="6">周六</option>
+                            <option value="0">周日</option>
+                        </select>
                     </div>
                 </div>
                 <button id="addSchedule" class="btn-success">添加定时任务</button>

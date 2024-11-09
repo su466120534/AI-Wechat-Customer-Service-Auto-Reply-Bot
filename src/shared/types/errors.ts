@@ -2,9 +2,9 @@
 export class AppError extends Error {
   constructor(
     message: string,
-    public readonly code: ErrorCode,
-    public readonly shouldNotify: boolean = true,
-    public readonly recoverable: boolean = true
+    public code: ErrorCode,
+    public recoverable: boolean = true,
+    public shouldNotify: boolean = true
   ) {
     super(message);
     this.name = 'AppError';
@@ -23,12 +23,17 @@ export enum ErrorCode {
   
   // 机器人相关错误
   BOT_INIT_FAILED = 'BOT_INIT_FAILED',
-  BOT_MESSAGE_FAILED = 'BOT_MESSAGE_FAILED',
+  BOT_NOT_INITIALIZED = 'BOT_NOT_INITIALIZED',
+  BOT_NOT_LOGGED_IN = 'BOT_NOT_LOGGED_IN',
   BOT_DISCONNECTED = 'BOT_DISCONNECTED',
+  
+  // 群聊相关错误
+  ROOM_NOT_FOUND = 'ROOM_NOT_FOUND',
+  ROOM_SEND_FAILED = 'ROOM_SEND_FAILED',
   
   // 定时任务相关错误
   SCHEDULE_INVALID = 'SCHEDULE_INVALID',
-  SCHEDULE_SAVE_FAILED = 'SCHEDULE_SAVE_FAILED',
+  SCHEDULE_EXECUTE_FAILED = 'SCHEDULE_EXECUTE_FAILED',
   
   // 系统错误
   SYSTEM_ERROR = 'SYSTEM_ERROR',
@@ -42,7 +47,12 @@ export enum ErrorCode {
   INVALID_INPUT = 'INVALID_INPUT',
   BOT_ERROR = 'BOT_ERROR',
   CONFIG_ERROR = 'CONFIG_ERROR',
-  SCHEDULE_ERROR = 'SCHEDULE_ERROR'
+  SCHEDULE_ERROR = 'SCHEDULE_ERROR',
+  
+  // 添加消息处理相关的错误码
+  BOT_MESSAGE_FAILED = 'BOT_MESSAGE_FAILED',
+  BOT_GROUP_MESSAGE_FAILED = 'BOT_GROUP_MESSAGE_FAILED',
+  BOT_PRIVATE_MESSAGE_FAILED = 'BOT_PRIVATE_MESSAGE_FAILED'
 }
 
 // 特定错误类型
