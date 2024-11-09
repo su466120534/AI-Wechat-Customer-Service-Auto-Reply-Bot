@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, shell } from 'electron'
 
 // 定义所有 IPC 通道名称，与主进程保持一致
 const IPC_CHANNELS = {
@@ -57,5 +57,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onScheduleError: (callback: (error: any) => void) =>
     ipcRenderer.on('schedule-error', (_event, error) => callback(error)),
   onTaskStatusUpdate: (callback: (update: any) => void) =>
-    ipcRenderer.on('task-status-update', (_event, update) => callback(update))
+    ipcRenderer.on('task-status-update', (_event, update) => callback(update)),
+  
+  // 添加打开外部链接的方法
+  openExternal: (url: string) => shell.openExternal(url)
 }) 

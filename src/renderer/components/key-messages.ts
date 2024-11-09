@@ -51,10 +51,26 @@ export class KeyMessages {
     messageElement.className = `key-message ${type}`;
     
     const time = new Date().toLocaleTimeString();
+    
+    // 处理消息中的链接
+    const processedMessage = this.processMessageLinks(message);
+    
     messageElement.innerHTML = `
       <span class="time">[${time}]</span>
-      <span class="message">${message}</span>
+      <span class="message">${processedMessage}</span>
     `;
+
+    // 添加链接点击事件
+    const links = messageElement.querySelectorAll('.message-link');
+    links.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const url = (e.target as HTMLAnchorElement).getAttribute('data-url');
+        if (url) {
+          window.electronAPI.openExternal(url);
+        }
+      });
+    });
 
     this.messageList.appendChild(messageElement);
 
@@ -65,6 +81,14 @@ export class KeyMessages {
 
     // 滚动到最新消息
     messageElement.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  private processMessageLinks(message: string): string {
+    // 替换 URL 为可点击的链接
+    return message.replace(
+      /(https?:\/\/[^\s]+)/g, 
+      url => `<a href="#" class="message-link" data-url="${url}">${url}</a>`
+    );
   }
 
   clear() {

@@ -8382,6 +8382,70 @@
     }
   });
 
+  // dist/renderer/components/key-messages.js
+  var require_key_messages = __commonJS({
+    "dist/renderer/components/key-messages.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.keyMessages = exports.KeyMessages = void 0;
+      var KeyMessages = class {
+        constructor() {
+          this.maxMessages = 50;
+          const container = document.getElementById("keyMessages");
+          if (!container) {
+            console.error("KeyMessages container not found");
+            this.container = this.createDefaultContainer();
+          } else {
+            this.container = container;
+          }
+          const messageList = this.container.querySelector(".message-list");
+          if (!messageList) {
+            this.messageList = document.createElement("div");
+            this.messageList.className = "message-list";
+            this.container.appendChild(this.messageList);
+          } else {
+            this.messageList = messageList;
+          }
+          this.addMessage("\u7B49\u5F85\u542F\u52A8...", "info");
+        }
+        createDefaultContainer() {
+          const container = document.createElement("div");
+          container.id = "keyMessages";
+          container.className = "key-messages";
+          const messageList = document.createElement("div");
+          messageList.className = "message-list";
+          container.appendChild(messageList);
+          const botStatusBox = document.querySelector(".bot-status-box");
+          if (botStatusBox) {
+            botStatusBox.appendChild(container);
+          } else {
+            document.body.appendChild(container);
+          }
+          return container;
+        }
+        addMessage(message, type = "info") {
+          const messageElement = document.createElement("div");
+          messageElement.className = `key-message ${type}`;
+          const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+          messageElement.innerHTML = `
+      <span class="time">[${time}]</span>
+      <span class="message">${message}</span>
+    `;
+          this.messageList.appendChild(messageElement);
+          while (this.messageList.children.length > this.maxMessages) {
+            this.messageList.removeChild(this.messageList.firstChild);
+          }
+          messageElement.scrollIntoView({ behavior: "smooth" });
+        }
+        clear() {
+          this.messageList.innerHTML = "";
+        }
+      };
+      exports.KeyMessages = KeyMessages;
+      exports.keyMessages = new KeyMessages();
+    }
+  });
+
   // dist/renderer/modules/config-manager.js
   var require_config_manager = __commonJS({
     "dist/renderer/modules/config-manager.js"(exports) {
@@ -8389,6 +8453,7 @@
       Object.defineProperty(exports, "__esModule", { value: true });
       exports.ConfigManager = void 0;
       var notification_1 = require_notification();
+      var key_messages_1 = require_key_messages();
       var ConfigManager = class {
         constructor() {
           this.saveTimeout = null;
@@ -8404,6 +8469,7 @@
           this.exportWhitelistButton = document.getElementById("exportWhitelist");
           this.bindEvents();
           this.loadConfig();
+          this.initHelpText();
         }
         bindEvents() {
           this.contactWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
@@ -8512,22 +8578,29 @@
         async handleApiKeyInput() {
           const value = this.aitiwoKeyInput.value.trim();
           if (!value) {
-            notification_1.notification.show("\u8BF7\u8F93\u5165 API Key", "warning");
+            key_messages_1.keyMessages.addMessage("\u8BF7\u5148\u8BBE\u7F6E API Key\u3002\u8BF7\u5230 https://qiye.aitiwo.com/ \u673A\u5668\u4EBA/\u521B\u5EFA\u667A\u80FD\u4F53/\u53D1\u5E03\u667A\u80FD\u4F53/API\u8C03\u7528/\u521B\u5EFAAPI\u3002", "warning");
+            this.aitiwoKeyInput.classList.add("invalid");
+            return;
+          }
+          if (!/^[A-Za-z0-9-_]{10,}$/.test(value)) {
+            key_messages_1.keyMessages.addMessage("API Key \u683C\u5F0F\u4E0D\u6B63\u786E\uFF0C\u8BF7\u68C0\u67E5\u662F\u5426\u6B63\u786E\u590D\u5236", "error");
+            this.aitiwoKeyInput.classList.add("invalid");
             return;
           }
           try {
             const result = await window.electronAPI.saveAitiwoKey(value);
             if (result.success) {
-              notification_1.notification.show("API Key \u9A8C\u8BC1\u6210\u529F", "success");
-              window.electronAPI.onBotEvent((event, data) => {
-                console.log("Bot event:", event, data);
-              });
+              key_messages_1.keyMessages.addMessage("API Key \u9A8C\u8BC1\u6210\u529F", "success");
+              key_messages_1.keyMessages.addMessage('\u73B0\u5728\u60A8\u53EF\u4EE5\u70B9\u51FB"\u542F\u52A8\u673A\u5668\u4EBA"\u6309\u94AE\u5F00\u59CB\u4F7F\u7528\u4E86', "info");
+              this.aitiwoKeyInput.classList.remove("invalid");
+              this.aitiwoKeyInput.classList.add("valid");
             } else {
               throw new Error(result.error || "\u9A8C\u8BC1\u5931\u8D25");
             }
           } catch (error) {
-            notification_1.notification.show("API Key \u9A8C\u8BC1\u5931\u8D25", "error");
+            key_messages_1.keyMessages.addMessage("API Key \u9A8C\u8BC1\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u662F\u5426\u6B63\u786E", "error");
             this.aitiwoKeyInput.classList.add("invalid");
+            this.aitiwoKeyInput.classList.remove("valid");
           }
         }
         async getSchedules() {
@@ -8588,6 +8661,46 @@
           } catch (error) {
             console.error("Failed to toggle schedule:", error);
             throw error;
+          }
+        }
+        initHelpText() {
+          const helpText = document.querySelector(".help-text");
+          if (helpText) {
+            helpText.addEventListener("click", () => {
+              const tooltip = document.createElement("div");
+              tooltip.className = "tooltip";
+              tooltip.innerHTML = `
+          <div class="tooltip-header">\u83B7\u53D6 API Key \u6B65\u9AA4\uFF1A</div>
+          <ol class="tooltip-steps">
+            <li>\u8BBF\u95EE <a href="#" class="tooltip-link">qiye.aitiwo.com</a></li>
+            <li>\u8FDB\u5165"\u673A\u5668\u4EBA"\u9875\u9762</li>
+            <li>\u521B\u5EFA\u6216\u9009\u62E9\u667A\u80FD\u4F53</li>
+            <li>\u53D1\u5E03\u667A\u80FD\u4F53</li>
+            <li>\u5728"API\u8C03\u7528"\u4E2D\u521B\u5EFA API Key</li>
+          </ol>
+        `;
+              const rect = helpText.getBoundingClientRect();
+              tooltip.style.left = `${rect.left}px`;
+              tooltip.style.top = `${rect.bottom + 5}px`;
+              document.body.appendChild(tooltip);
+              tooltip.classList.add("show");
+              const link = tooltip.querySelector(".tooltip-link");
+              if (link) {
+                link.addEventListener("click", (e) => {
+                  e.preventDefault();
+                  window.electronAPI.openExternal("https://qiye.aitiwo.com/");
+                });
+              }
+              const closeTooltip = (e) => {
+                if (!tooltip.contains(e.target)) {
+                  tooltip.remove();
+                  document.removeEventListener("click", closeTooltip);
+                }
+              };
+              setTimeout(() => {
+                document.addEventListener("click", closeTooltip);
+              }, 0);
+            });
           }
         }
       };
@@ -8866,70 +8979,6 @@
     }
   });
 
-  // dist/renderer/components/key-messages.js
-  var require_key_messages = __commonJS({
-    "dist/renderer/components/key-messages.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.keyMessages = exports.KeyMessages = void 0;
-      var KeyMessages = class {
-        constructor() {
-          this.maxMessages = 50;
-          const container = document.getElementById("keyMessages");
-          if (!container) {
-            console.error("KeyMessages container not found");
-            this.container = this.createDefaultContainer();
-          } else {
-            this.container = container;
-          }
-          const messageList = this.container.querySelector(".message-list");
-          if (!messageList) {
-            this.messageList = document.createElement("div");
-            this.messageList.className = "message-list";
-            this.container.appendChild(this.messageList);
-          } else {
-            this.messageList = messageList;
-          }
-          this.addMessage("\u7B49\u5F85\u542F\u52A8...", "info");
-        }
-        createDefaultContainer() {
-          const container = document.createElement("div");
-          container.id = "keyMessages";
-          container.className = "key-messages";
-          const messageList = document.createElement("div");
-          messageList.className = "message-list";
-          container.appendChild(messageList);
-          const botStatusBox = document.querySelector(".bot-status-box");
-          if (botStatusBox) {
-            botStatusBox.appendChild(container);
-          } else {
-            document.body.appendChild(container);
-          }
-          return container;
-        }
-        addMessage(message, type = "info") {
-          const messageElement = document.createElement("div");
-          messageElement.className = `key-message ${type}`;
-          const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
-          messageElement.innerHTML = `
-      <span class="time">[${time}]</span>
-      <span class="message">${message}</span>
-    `;
-          this.messageList.appendChild(messageElement);
-          while (this.messageList.children.length > this.maxMessages) {
-            this.messageList.removeChild(this.messageList.firstChild);
-          }
-          messageElement.scrollIntoView({ behavior: "smooth" });
-        }
-        clear() {
-          this.messageList.innerHTML = "";
-        }
-      };
-      exports.KeyMessages = KeyMessages;
-      exports.keyMessages = new KeyMessages();
-    }
-  });
-
   // dist/renderer/index.js
   var require_renderer = __commonJS({
     "dist/renderer/index.js"(exports) {
@@ -8987,13 +9036,16 @@
           try {
             const config = await window.electronAPI.getConfig();
             if (!config.aitiwoKey) {
-              key_messages_1.keyMessages.addMessage("\u8BF7\u5148\u8BBE\u7F6E API Key\u3002\u60A8\u53EF\u4EE5\u524D\u5F80 qiye.aitiwo.com \u521B\u5EFA\u673A\u5668\u4EBA\u5E76\u83B7\u53D6 API Key\u3002", "warning");
+              key_messages_1.keyMessages.addMessage("\u8BF7\u5148\u8BBE\u7F6E API Key\u3002\u8BF7\u5230 https://qiye.aitiwo.com/ \u673A\u5668\u4EBA/\u521B\u5EFA\u667A\u80FD\u4F53/\u53D1\u5E03\u667A\u80FD\u4F53/API\u8C03\u7528/\u521B\u5EFAAPI\u3002", "warning");
+            } else {
+              key_messages_1.keyMessages.addMessage("API Key \u5DF2\u914D\u7F6E", "success");
             }
             if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
               key_messages_1.keyMessages.addMessage('\u63D0\u793A\uFF1A\u5F53\u524D\u672A\u8BBE\u7F6E\u767D\u540D\u5355\uFF0C\u673A\u5668\u4EBA\u5C06\u4E0D\u4F1A\u54CD\u5E94\u4EFB\u4F55\u6D88\u606F\u3002\u8BF7\u5728"\u767D\u540D\u5355\u914D\u7F6E"\u4E2D\u8BBE\u7F6E\u3002', "warning");
             }
           } catch (error) {
             this.logger.error("App", "\u68C0\u67E5\u914D\u7F6E\u5931\u8D25", error);
+            key_messages_1.keyMessages.addMessage("\u68C0\u67E5\u914D\u7F6E\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u8FDE\u63A5", "error");
           }
         }
         bindEvents() {

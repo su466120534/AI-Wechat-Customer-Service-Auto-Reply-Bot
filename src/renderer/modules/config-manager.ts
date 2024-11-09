@@ -1,6 +1,7 @@
 import { notification } from '../components/notification';
 import { LoadingUI } from '../components/loading';
 import { AppError, ErrorCode, ConfigError } from '../../shared/types';
+import { keyMessages } from '../components/key-messages';
 
 interface Config {
   aitiwoKey?: string;
@@ -31,6 +32,7 @@ export class ConfigManager {
 
     this.bindEvents();
     this.loadConfig();
+    this.initHelpText();
   }
 
   private bindEvents() {
@@ -172,7 +174,15 @@ export class ConfigManager {
     const value = this.aitiwoKeyInput.value.trim();
     
     if (!value) {
-      notification.show('请输入 API Key', 'warning');
+      keyMessages.addMessage('请先设置 API Key。请到 https://qiye.aitiwo.com/ 机器人/创建智能体/发布智能体/API调用/创建API。', 'warning');
+      this.aitiwoKeyInput.classList.add('invalid');
+      return;
+    }
+
+    // 简单的格式验证（可以根据实际的 API Key 格式要求调整）
+    if (!/^[A-Za-z0-9-_]{10,}$/.test(value)) {
+      keyMessages.addMessage('API Key 格式不正确，请检查是否正确复制', 'error');
+      this.aitiwoKeyInput.classList.add('invalid');
       return;
     }
 
@@ -180,17 +190,17 @@ export class ConfigManager {
       const result = await window.electronAPI.saveAitiwoKey(value);
       
       if (result.success) {
-        notification.show('API Key 验证成功', 'success');
-        window.electronAPI.onBotEvent((event: string, data: any) => {
-          console.log('Bot event:', event, data);
-          // 在这里处理事件和数据
-        });
+        keyMessages.addMessage('API Key 验证成功', 'success');
+        keyMessages.addMessage('现在您可以点击"启动机器人"按钮开始使用了', 'info');
+        this.aitiwoKeyInput.classList.remove('invalid');
+        this.aitiwoKeyInput.classList.add('valid');
       } else {
         throw new Error(result.error || '验证失败');
       }
     } catch (error) {
-      notification.show('API Key 验证失败', 'error');
+      keyMessages.addMessage('API Key 验证失败，请检查是否正确', 'error');
       this.aitiwoKeyInput.classList.add('invalid');
+      this.aitiwoKeyInput.classList.remove('valid');
     }
   }
 
@@ -257,6 +267,55 @@ export class ConfigManager {
     } catch (error) {
       console.error('Failed to toggle schedule:', error);
       throw error;
+    }
+  }
+
+  private initHelpText() {
+    const helpText = document.querySelector('.help-text');
+    if (helpText) {
+      helpText.addEventListener('click', () => {
+        const tooltip = document.createElement('div');
+        tooltip.className = 'tooltip';
+        tooltip.innerHTML = `
+          <div class="tooltip-header">获取 API Key 步骤：</div>
+          <ol class="tooltip-steps">
+            <li>访问 <a href="#" class="tooltip-link">qiye.aitiwo.com</a></li>
+            <li>进入"机器人"页面</li>
+            <li>创建或选择智能体</li>
+            <li>发布智能体</li>
+            <li>在"API调用"中创建 API Key</li>
+          </ol>
+        `;
+        
+        const rect = helpText.getBoundingClientRect();
+        tooltip.style.left = `${rect.left}px`;
+        tooltip.style.top = `${rect.bottom + 5}px`;
+        
+        document.body.appendChild(tooltip);
+        tooltip.classList.add('show');
+        
+        // 添加链接点击事件
+        const link = tooltip.querySelector('.tooltip-link');
+        if (link) {
+          link.addEventListener('click', (e) => {
+            e.preventDefault();
+            // 使用 electron 的 shell 模块打开外部链接
+            window.electronAPI.openExternal('https://qiye.aitiwo.com/');
+          });
+        }
+        
+        // 点击其他地方关闭提示
+        const closeTooltip = (e: MouseEvent) => {
+          if (!tooltip.contains(e.target as Node)) {
+            tooltip.remove();
+            document.removeEventListener('click', closeTooltip);
+          }
+        };
+        
+        setTimeout(() => {
+          document.addEventListener('click', closeTooltip);
+        }, 0);
+      });
     }
   }
 } 

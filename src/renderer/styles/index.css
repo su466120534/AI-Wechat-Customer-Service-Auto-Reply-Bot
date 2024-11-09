@@ -755,3 +755,83 @@ button:disabled {
 .key-message.error {
     color: #ff4d4f;
 }
+
+.form-help {
+    margin-top: 8px;
+    color: #666;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.help-icon {
+    font-size: 14px;
+}
+
+.help-text {
+    color: #1890ff;
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
+.help-text:hover {
+    color: #40a9ff;
+}
+
+/* 添加提示框样式 */
+.tooltip {
+    display: none;
+    position: absolute;
+    background: #fff;
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    max-width: 300px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #666;
+    margin-top: 8px;
+    z-index: 1000;
+}
+
+.tooltip.show {
+    display: block;
+}
+
+.tooltip-header {
+    font-weight: 500;
+    color: #333;
+    margin-bottom: 8px;
+}
+
+.tooltip-steps {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.tooltip-steps li {
+    margin-bottom: 6px;
+}
+
+.tooltip-link {
+    color: #1890ff;
+    text-decoration: none;
+}
+
+.tooltip-link:hover {
+    text-decoration: underline;
+}
+
+.message-link {
+    color: #1890ff;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.message-link:hover {
+    text-decoration: underline;
+    color: #40a9ff;
+}

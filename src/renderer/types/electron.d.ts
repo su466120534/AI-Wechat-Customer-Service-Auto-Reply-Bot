@@ -46,5 +46,6 @@ interface Window {
     importWhitelist: (data: any) => Promise<{ success: boolean; error?: string }>;
     exportWhitelist: () => Promise<{ success: boolean; data?: any; error?: string }>;
     saveAitiwoKey: (key: string) => Promise<{ success: boolean; error?: string }>;
+    openExternal: (url: string) => Promise<void>;
   }
 } 

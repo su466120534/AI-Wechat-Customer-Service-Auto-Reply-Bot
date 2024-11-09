@@ -305,23 +305,28 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         type: 'warning',
         message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
       });
-      throw new AppError('请先设 API Key', ErrorCode.CONFIG_INVALID);
+      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
     }
 
-    // 白名单检查
-    if (config.contactWhitelist.length === 0 && config.roomWhitelist.length === 0) {
-      logger.warn('Bot', '白名单未设置');
-      mainWindow.webContents.send('key-message', {
-        type: 'warning',
-        message: '提示：当前未设置白名单，机器人将不会响应任何消息。请在"白名单配置"中设置。'
-      });
+    // 检查是否已有实例在运行并且已登录
+    if (botInstance) {
+      const isLoggedIn = await checkBotStatus();
+      if (isLoggedIn) {
+        logger.info('Bot', '机器人已登录，无需重新扫码');
+        mainWindow.webContents.send('key-message', {
+          type: 'success',
+          message: '机器人已登录，正在启动...'
+        });
+        return '';
+      }
     }
 
-    // 检查是否已有实例在运行
-    if (botInstance && await checkBotStatus()) {
-      logger.info('Bot', '机器人例已存在且在线');
-      return '';
-    }
+    // 如果没有登录，创建新实例并显示二维码
+    logger.info('Bot', '未检测到登录状态，需要扫码登录');
+    mainWindow.webContents.send('key-message', {
+      type: 'info',
+      message: '未检测到登录状态，请扫码登录'
+    });
 
     // 初始化 Promise
     qrcodePromise = new Promise<string>((resolve, reject) => {
@@ -348,6 +353,8 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
           try {
             logger.info('Bot', '收到扫码事件', { status });
             const dataUrl = await QRCode.toDataURL(qrcode);
+            // 创建并显示二维码窗口
+            createQRCodeWindow(dataUrl);
             qrcodeResolve(dataUrl);
           } catch (error) {
             logger.error('Bot', '生成二维码失败', error);
@@ -356,6 +363,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         })
         .on('login', (user: any) => {
           logger.info('Bot', '登录成功', { userName: user.name() });
+          // 登录成功后关闭二维码窗口
           closeQRCodeWindow();
           mainWindow.webContents.send('key-message', {
             type: 'success',
@@ -441,7 +449,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
 
               // 处理群名变更情况
               if (room && !isAllowedRoom && roomTopic) {
-                // 检查是否是群��变更导致的不匹配
+                // 检查是否是群变更导致的不匹配
                 const similarRoom = config.roomWhitelist.find(name => 
                   name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
                 );

@@ -64,7 +64,7 @@ class App {
       // 初始化标签切换
       this.initTabSwitching();
 
-      // 检查初始配置
+      // 立即检查初始配置
       this.checkInitialConfig();
 
     } catch (error) {
@@ -79,7 +79,9 @@ class App {
       
       // 检查 API Key
       if (!config.aitiwoKey) {
-        keyMessages.addMessage('请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。', 'warning');
+        keyMessages.addMessage('请先设置 API Key。请到 https://qiye.aitiwo.com/ 机器人/创建智能体/发布智能体/API调用/创建API。', 'warning');
+      } else {
+        keyMessages.addMessage('API Key 已配置', 'success');
       }
 
       // 检查白名单
@@ -88,6 +90,7 @@ class App {
       }
     } catch (error) {
       this.logger.error('App', '检查配置失败', error);
+      keyMessages.addMessage('检查配置失败，请检查网络连接', 'error');
     }
   }
 
