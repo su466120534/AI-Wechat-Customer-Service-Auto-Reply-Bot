@@ -2,7 +2,8 @@
 export class KeyMessages {
   private container: HTMLElement;
   private messageList: HTMLElement;
-  private maxMessages: number = 50;  // 增加消息数量限制
+  private maxMessages: number = 5;  // 限制显示最近的5条消息
+  private messageTimeouts: Map<HTMLElement, NodeJS.Timeout> = new Map();  // 添加超时管理
 
   constructor() {
     const container = document.getElementById('keyMessages');
@@ -22,8 +23,8 @@ export class KeyMessages {
       this.messageList = messageList as HTMLElement;
     }
 
-    // 只在这里添加一次初始消息
-    this.addMessage('等待启动...', 'info');
+    // 添加初始消息，不设置自动消失
+    this.addMessage('等待启动...', 'info', false);
   }
 
   private createDefaultContainer(): HTMLElement {
@@ -46,7 +47,14 @@ export class KeyMessages {
     return container;
   }
 
-  addMessage(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+  addMessage(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info', autoRemove: boolean = false) {
+    // 判断是否为需要保持显示的重要消息
+    const keepMessage = message.includes('机器人已启动') || 
+                       message.includes('微信登录成功') || 
+                       message.includes('API Key 已配置') ||
+                       message.includes('白名单已配置') ||
+                       message.includes('机器人正在运行');
+
     const messageElement = document.createElement('div');
     messageElement.className = `key-message ${type}`;
     
@@ -60,27 +68,40 @@ export class KeyMessages {
       <span class="message">${processedMessage}</span>
     `;
 
-    // 添加链接点击事件
-    const links = messageElement.querySelectorAll('.message-link');
-    links.forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const url = (e.target as HTMLAnchorElement).getAttribute('data-url');
-        if (url) {
-          window.electronAPI.openExternal(url);
-        }
-      });
-    });
-
-    this.messageList.appendChild(messageElement);
+    // 添加到列表开头
+    this.messageList.insertBefore(messageElement, this.messageList.firstChild);
 
     // 限制消息数量
     while (this.messageList.children.length > this.maxMessages) {
-      this.messageList.removeChild(this.messageList.firstChild as Node);
+      const lastChild = this.messageList.lastChild as HTMLElement;
+      if (lastChild) {
+        // 清除该消息的定时器
+        const timeout = this.messageTimeouts.get(lastChild);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.messageTimeouts.delete(lastChild);
+        }
+        this.messageList.removeChild(lastChild);
+      }
     }
 
-    // 滚动到最新消息
-    messageElement.scrollIntoView({ behavior: 'smooth' });
+    // 如果需要自动移除且不是重要消息，设置定时器
+    if (autoRemove && !keepMessage) {
+      const timeout = setTimeout(() => {
+        messageElement.classList.add('fade-out');
+        setTimeout(() => {
+          if (messageElement.parentNode === this.messageList) {
+            this.messageList.removeChild(messageElement);
+          }
+          this.messageTimeouts.delete(messageElement);
+        }, 300); // 等待淡出动画完成
+      }, 3000); // 3秒后开始淡出
+
+      this.messageTimeouts.set(messageElement, timeout);
+    }
+
+    // 平滑滚动效果
+    messageElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   private processMessageLinks(message: string): string {
@@ -92,6 +113,10 @@ export class KeyMessages {
   }
 
   clear() {
+    // 清除所有定时器
+    this.messageTimeouts.forEach(timeout => clearTimeout(timeout));
+    this.messageTimeouts.clear();
+    // 清空消息列表
     this.messageList.innerHTML = '';
   }
 }

@@ -135,26 +135,47 @@ class App {
   private async handleStartBot() {
     if (!this.botStatus) return;
     try {
-      this.logger.info('bot', '正在启动机器人...');
-      this.botStatus.updateStatus('waiting', '正在启动机器人...');
-      keyMessages.addMessage('正在启动机器人...', 'info');
-      
-      const result = await window.electronAPI.startBot();
-      
-      if (result.success) {
-        const message = result.message || '机器人启动成功';
-        this.logger.info('bot', message);
-        this.botStatus.updateStatus('waiting', message);
-        keyMessages.addMessage(message, 'success');
-        keyMessages.addMessage('请使用微信扫描二维码登录', 'info');
-      } else {
-        throw new Error(result.error || '启动失败');
-      }
+        // 更新状态和显示消息
+        this.logger.info('bot', '启动机器人...');
+        this.botStatus.updateStatus('waiting', '正在启动机器人...');
+        keyMessages.addMessage('正在启动机器人...', 'info');
+        
+        const result = await window.electronAPI.startBot();
+        
+        if (result.success) {
+            // 更新状态为运行中
+            this.botStatus.updateStatus('running', '机器人已启动');
+            keyMessages.addMessage('机器人启动成功', 'success');
+            
+            // 检查配置状态
+            const config = await window.electronAPI.getConfig();
+            
+            // 检查 API Key
+            if (config.aitiwoKey) {
+                keyMessages.addMessage('API Key 已配置并验证通过', 'success');
+            }
+            
+            // 检查白名单
+            if (config.contactWhitelist.length > 0 || config.roomWhitelist.length > 0) {
+                keyMessages.addMessage(`白名单已配置：${config.roomWhitelist.length}个群聊，${config.contactWhitelist.length}个联系人`, 'success');
+            }
+            
+            // 如果需要扫码
+            if (result.message?.includes('扫码')) {
+                keyMessages.addMessage('请使用微信扫描二维码登录', 'info');
+            } else {
+                // 如果已经登录
+                keyMessages.addMessage('检测到已登录状态，机器人开始工作', 'success');
+                keyMessages.addMessage('机器人将自动回复消息', 'info');
+            }
+        } else {
+            throw new Error(result.error || '启动失败');
+        }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '未知错误';
-      this.logger.error('bot', `启动失败: ${errorMessage}`);
-      this.botStatus.updateStatus('error', `启动失败: ${errorMessage}`);
-      keyMessages.addMessage(`启动失败: ${errorMessage}`, 'error');
+        const errorMessage = error instanceof Error ? error.message : '未知错误';
+        this.logger.error('bot', `启动失败: ${errorMessage}`);
+        this.botStatus.updateStatus('error', `启动失败: ${errorMessage}`);
+        keyMessages.addMessage(`启动失败: ${errorMessage}`, 'error');
     }
   }
 
@@ -184,58 +205,91 @@ class App {
   }
 
   private initBotEventListeners() {
-    if (!this.qrcodeManager) return;
+    if (!this.qrcodeManager) {
+        console.error('QRCodeManager not initialized');
+        return;
+    }
 
-    // 监听二维码生成
-    window.electronAPI.onQrcodeGenerated((qrcode: string) => {
-      this.qrcodeManager?.show(qrcode);
-      keyMessages.addMessage('二维码已生成，请使用微信扫码登录', 'info');
-    });
+    console.log('Initializing bot event listeners');
 
     // 监听机器人事件
     window.electronAPI.onBotEvent((event: string, data: any) => {
-      switch (event) {
-        case 'login':
-          this.handleLoginEvent(data);
-          break;
-        case 'logout':
-          this.handleLogoutEvent(data);
-          break;
-        case 'message':
-          this.handleMessageEvent(data);
-          break;
-        case 'error':
-          this.handleErrorEvent(data);
-          break;
-        case 'status':
-          this.handleStatusEvent(data);
-          break;
-        case 'warning':
-          this.handleWarningEvent(data);
-          break;
-      }
+        console.log('Received bot event:', event, data);
+        
+        switch (event) {
+            case 'login':
+                console.log('Processing login event:', data);
+                this.handleLoginEvent(data);
+                break;
+            case 'logout':
+                console.log('Processing logout event:', data);
+                this.handleLogoutEvent(data);
+                break;
+            default:
+                console.log('Unhandled event type:', event, data);
+        }
     });
 
     // 监听关键消息
-    window.electronAPI.on('key-message', (data: { type: 'info' | 'success' | 'warning' | 'error', message: string }) => {
-      keyMessages.addMessage(data.message, data.type);
+    window.electronAPI.on('key-message', (data: { type: string, message: string }) => {
+        console.log('Received key message:', data);
+        keyMessages.addMessage(data.message, data.type as any);
     });
+
+    // 监听二维码事件
+    window.electronAPI.onQrcodeGenerated((qrcode: string) => {
+        console.log('Received QR code');
+        if (this.qrcodeManager) {
+            this.qrcodeManager.show(qrcode);
+        }
+    });
+
+    console.log('Bot event listeners initialized');
   }
 
   private handleLoginEvent(data: any) {
-    if (!this.qrcodeManager || !this.botStatus) return;
+    console.log('Starting login event handling:', data);
+    
+    if (!this.qrcodeManager) {
+        console.error('QRCodeManager not initialized');
+        return;
+    }
+
+    if (!this.botStatus) {
+        console.error('BotStatus not initialized');
+        return;
+    }
+
+    // 关闭二维码显示
+    console.log('Hiding QR code');
     this.qrcodeManager.hide();
-    this.logger.info('bot', `微信登录成功: ${data.userName}`);
+    
+    // 更新按钮状态为运行中（红色停止按钮）
+    console.log('Updating bot status to running');
     this.botStatus.updateStatus('running', '机器人已登录并运行中');
+    
+    // 添加状态消息
+    console.log('Adding status messages');
     keyMessages.addMessage(`微信登录成功，用户：${data.userName}`, 'success');
-    keyMessages.addMessage('机器人开始工作，将自动回复消息', 'info');
+    keyMessages.addMessage('机器人已启动并正在运行', 'success');
+    keyMessages.addMessage('机器人将自动回复消息', 'info');
+    
+    console.log('Login event handling completed');
   }
 
   private handleLogoutEvent(data: any) {
-    if (!this.botStatus) return;
+    console.log('Starting logout event handling:', data);
+    
+    if (!this.botStatus) {
+        console.error('BotStatus not initialized');
+        return;
+    }
+    
     this.logger.warning('bot', `用户已登出: ${data.userName}`);
     this.botStatus.updateStatus('stopped', '机器人已登出');
     keyMessages.addMessage(`微信已登出，用户：${data.userName}`, 'warning');
+    
+    console.log('Logout event handling completed');
   }
 
   private handleMessageEvent(data: any) {
@@ -251,17 +305,28 @@ class App {
   }
 
   private handleStatusEvent(data: any) {
-    if (!this.botStatus) return;
-    if (data.message.includes('API Key')) {
-      this.botStatus.updateStatus('waiting', data.message);
-      keyMessages.addMessage(data.message, 'warning');
-    } else if (data.message.includes('重新连接')) {
-      this.botStatus.updateStatus('waiting');
-      keyMessages.addMessage('检测到连接断开，正在尝试重新连接...', 'warning');
-    } else if (data.message.includes('重连成功')) {
-      this.botStatus.updateStatus('running');
-      keyMessages.addMessage('网络连接已恢复', 'success');
+    console.log('Starting status event handling:', data);
+    
+    if (!this.botStatus) {
+        console.error('BotStatus not initialized');
+        return;
     }
+
+    if (data.message.includes('API Key')) {
+        console.log('Handling API Key status');
+        this.botStatus.updateStatus('waiting', data.message);
+        keyMessages.addMessage(data.message, 'warning');
+    } else if (data.message.includes('重新连接')) {
+        console.log('Handling reconnection status');
+        this.botStatus.updateStatus('waiting');
+        keyMessages.addMessage('检测到连接断开，正在尝试重新连接...', 'warning');
+    } else if (data.message.includes('重连成功')) {
+        console.log('Handling reconnection success');
+        this.botStatus.updateStatus('running');
+        keyMessages.addMessage('网络连接已恢复', 'success');
+    }
+    
+    console.log('Status event handling completed');
   }
 
   private handleWarningEvent(data: any) {

@@ -33,78 +33,106 @@ class ScheduleManager {
     this.mainWindow = window;
   }
 
-  private async executeTask(task: ScheduleTask, retryCount = 0) {
+  private async executeTask(task: ScheduleTask) {
     try {
+      logger.info('Schedule', `开始执行定时任务`, {
+        taskId: task.id,
+        roomNames: task.roomNames
+      });
+
       if (!this.bot) {
+        logger.error('Schedule', '机器人未初始化');
         throw new AppError('机器人未初始化', ErrorCode.BOT_NOT_INITIALIZED);
       }
 
-      // 检查机器人状态
-      try {
-        // 使用 Room.find 来检查机器人状态，如果能找到群，说明机器人在线
-        const testRoom = await this.bot.Room.find({ topic: task.roomName });
-        if (!testRoom) {
-          throw new AppError('机器人未登录或未准备就绪', ErrorCode.BOT_NOT_LOGGED_IN);
+      // 遍历所有目标群聊
+      for (const roomName of task.roomNames) {
+        try {
+          logger.info('Schedule', `查找群聊`, {
+            taskId: task.id,
+            roomName
+          });
+
+          const room = await this.bot.Room.find({ topic: roomName });
+          if (!room) {
+            logger.error('Schedule', `找不到群聊`, {
+              taskId: task.id,
+              roomName
+            });
+            continue;
+          }
+
+          // 发送消息
+          logger.info('Schedule', `开始发送消息`, {
+            taskId: task.id,
+            roomName,
+            message: task.message
+          });
+
+          await room.say(task.message);
+          
+          logger.info('Schedule', `消息发送成功`, {
+            taskId: task.id,
+            roomName
+          });
+        } catch (error) {
+          logger.error('Schedule', `向群发送消息失败`, {
+            taskId: task.id,
+            roomName,
+            error: error instanceof Error ? error.message : '未知错误'
+          });
         }
+      }
 
-        // 发送消息
-        await testRoom.say(task.message);
-        
-        // 记录成功执行
-        this.recordTaskHistory(task.id, {
+      // 记录成功执行
+      this.recordTaskHistory(task.id, {
+        taskId: task.id,
+        executionTime: new Date().toISOString(),
+        status: 'success'
+      });
+
+      logger.info('Schedule', `定时任务执行完成`, {
+        taskId: task.id
+      });
+
+    } catch (error) {
+      // 记录错误
+      logger.error('Schedule', '定时任务执行失败', {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : '未知错误',
+      });
+
+      // 记录失败历史
+      this.recordTaskHistory(task.id, {
+        taskId: task.id,
+        executionTime: new Date().toISOString(),
+        status: 'failed',
+        error: error instanceof Error ? error.message : '未知错误'
+      });
+
+      // 根据错误类型决定是否重试
+      if (this.shouldRetry(error)) {
+        const delay = this.calculateRetryDelay();
+        logger.info('Schedule', `将在 ${delay/1000} 秒后重试`, {
           taskId: task.id,
-          executionTime: new Date().toISOString(),
-          status: 'success'
+          attempt: 1,
+          maxRetries: this.MAX_RETRY
         });
 
-        logger.info('Schedule', '定时消息发送成功', {
+        setTimeout(() => {
+          this.executeTask(task);
+        }, delay);
+      } else {
+        // 达到最大重试次数或不需要重试的错误
+        logger.error('Schedule', '任务执行最终失败', {
           taskId: task.id,
-          room: task.roomName,
-          message: task.message
-        });
-
-      } catch (error) {
-        // 记录错误
-        logger.error('Schedule', '定时任务执行失败', {
-          taskId: task.id,
-          error: error instanceof Error ? error.message : '未知错误',
-          retryCount
-        });
-
-        // 记录失败历史
-        this.recordTaskHistory(task.id, {
-          taskId: task.id,
-          executionTime: new Date().toISOString(),
-          status: 'failed',
+          maxRetriesExceeded: true,
           error: error instanceof Error ? error.message : '未知错误'
         });
 
-        // 根据错误类型决定是否重试
-        if (this.shouldRetry(error) && retryCount < this.MAX_RETRY) {
-          const delay = this.calculateRetryDelay(retryCount);
-          logger.info('Schedule', `将在 ${delay/1000} 秒后重试`, {
-            taskId: task.id,
-            attempt: retryCount + 1,
-            maxRetries: this.MAX_RETRY
-          });
-
-          setTimeout(() => {
-            this.executeTask(task, retryCount + 1);
-          }, delay);
-        } else {
-          // 达到最大重试次数或不需要重试的错误
-          logger.error('Schedule', '任务执行最终失败', {
-            taskId: task.id,
-            maxRetriesExceeded: retryCount >= this.MAX_RETRY,
-            error: error instanceof Error ? error.message : '未知错误'
-          });
-
-          // 通知用户
-          this.notifyTaskFailure(task, error);
-        }
+        // 通知用户
+        this.notifyTaskFailure(task, error);
       }
-    } catch (error) {
-      logger.error('Schedule', `启动定时任务 ${task.id} 失败`, error);
     }
   }
 
@@ -129,9 +157,9 @@ class ScheduleManager {
     return false;
   }
 
-  private calculateRetryDelay(retryCount: number): number {
+  private calculateRetryDelay(): number {
     // 指数退避策略
-    return Math.min(1000 * Math.pow(2, retryCount), 30000);
+    return Math.min(1000 * Math.pow(2, 0), 30000);
   }
 
   private notifyTaskFailure(task: ScheduleTask, error: any) {
@@ -141,7 +169,7 @@ class ScheduleManager {
     const notification = {
       type: 'task_failure',
       taskId: task.id,
-      roomName: task.roomName,
+      roomName: task.roomNames[0],
       error: errorMessage,
       time: new Date().toISOString()
     };
@@ -171,21 +199,55 @@ class ScheduleManager {
 
   private scheduleTask(task: ScheduleTask) {
     try {
+      logger.info('Schedule', `开始创建定时任务`, {
+        taskId: task.id,
+        cron: task.cron,
+        roomNames: task.roomNames
+      });
+
+      // 验证 cron 表达式
+      try {
+        const parser = require('cron-parser');
+        const interval = parser.parseExpression(task.cron);
+        const nextRun = interval.next().toDate();
+        logger.info('Schedule', `下次执行时间`, {
+          taskId: task.id,
+          nextRun: nextRun.toLocaleString()
+        });
+      } catch (error) {
+        logger.error('Schedule', `Cron 表达式无效`, {
+          taskId: task.id,
+          cron: task.cron,
+          error: error instanceof Error ? error.message : '未知错误'
+        });
+        return;
+      }
+
       const scheduledTask = nodeSchedule.scheduleJob(task.cron, () => {
+        logger.info('Schedule', `触发定时任务`, {
+          taskId: task.id,
+          time: new Date().toLocaleString()
+        });
         this.executeTask(task);
       });
       
       if (scheduledTask) {
         this.tasks.set(task.id, scheduledTask);
-        
-        // 计算下次执行时间
         const nextRun = scheduledTask.nextInvocation();
-        logger.info('Schedule', `定时任务 ${task.id} 已启动，下次执行时间: ${nextRun}`);
+        logger.info('Schedule', `定时任务创建成功`, {
+          taskId: task.id,
+          nextRun: nextRun.toLocaleString()
+        });
       } else {
-        logger.error('Schedule', `定时任务 ${task.id} 创建失败`);
+        logger.error('Schedule', `定时任务创建失败`, {
+          taskId: task.id
+        });
       }
     } catch (error) {
-      logger.error('Schedule', `启动定时任务 ${task.id} 失败`, error);
+      logger.error('Schedule', `创建定时任务失败`, {
+        taskId: task.id,
+        error: error instanceof Error ? error.message : '未知错误'
+      });
     }
   }
 
@@ -196,7 +258,7 @@ class ScheduleManager {
       if (task.enabled) {
         this.scheduleTask({
           id: task.id,
-          roomName: task.roomName,
+          roomNames: task.roomNames,
           message: task.message,
           cron: task.cron,
           enabled: task.enabled
@@ -209,7 +271,7 @@ class ScheduleManager {
     const config = ConfigManager.getConfig()
     const configTask: ScheduleTask = {
       id: task.id,
-      roomName: task.roomName,
+      roomNames: task.roomNames,
       message: task.message,
       cron: task.cron,
       enabled: task.enabled
@@ -231,7 +293,7 @@ class ScheduleManager {
     if (index !== -1) {
       const configTask: ScheduleTask = {
         id: task.id,
-        roomName: task.roomName,
+        roomNames: task.roomNames,
         message: task.message,
         cron: task.cron,
         enabled: task.enabled
@@ -280,7 +342,7 @@ class ScheduleManager {
       if (enabled) {
         this.scheduleTask({
           id: configTask.id,
-          roomName: configTask.roomName,
+          roomNames: configTask.roomNames,
           message: configTask.message,
           cron: configTask.cron,
           enabled: configTask.enabled

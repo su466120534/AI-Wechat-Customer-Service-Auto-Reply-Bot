@@ -1,6 +1,6 @@
 interface ScheduleTask {
   id: string;
-  roomName: string;
+  roomNames: string[];
   message: string;
   cron: string;
   enabled: boolean;
@@ -43,8 +43,6 @@ interface Window {
     onScheduleError: (callback: (error: any) => void) => void;
     onTaskStatusUpdate: (callback: (update: TaskStatusUpdate) => void) => void;
     saveWhitelist: (data: { contacts: string[]; rooms: string[] }) => Promise<{ success: boolean; error?: string }>;
-    importWhitelist: (data: any) => Promise<{ success: boolean; error?: string }>;
-    exportWhitelist: () => Promise<{ success: boolean; data?: any; error?: string }>;
     saveAitiwoKey: (key: string) => Promise<{ success: boolean; error?: string }>;
     openExternal: (url: string) => Promise<void>;
   }

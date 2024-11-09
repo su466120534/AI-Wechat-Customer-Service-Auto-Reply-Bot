@@ -7,8 +7,17 @@ export interface Config {
 
 export interface ScheduleTask {
   id: string;
-  roomName: string;
+  roomNames: string[];
   message: string;
   cron: string;
   enabled: boolean;
+  lastRun?: string;
+  lastStatus?: 'success' | 'failed';
+  histories?: TaskHistory[];
+}
+
+export interface TaskHistory {
+  executionTime: string;
+  status: 'success' | 'failed';
+  error?: string;
 } 

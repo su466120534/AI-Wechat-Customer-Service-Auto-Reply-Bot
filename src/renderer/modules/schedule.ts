@@ -12,7 +12,7 @@ interface TaskTemplate {
 // 在文件顶部添加类型导入
 interface ScheduleTask {
   id: string;
-  roomName: string;
+  roomNames: string[];
   message: string;
   cron: string;
   enabled: boolean;
@@ -23,13 +23,15 @@ interface ScheduleTask {
 
 export class ScheduleManager {
   private container: HTMLElement;
-  private scheduleRoomInput!: HTMLSelectElement | HTMLInputElement;
+  private roomSelect: HTMLSelectElement;
   private scheduleMessageInput!: HTMLTextAreaElement;
-  private scheduleCronInput!: HTMLInputElement;
   private addScheduleButton!: HTMLButtonElement;
-  private roomTagsContainer!: HTMLElement;
-  private roomInput!: HTMLInputElement;
+  private roomTagsContainer: HTMLElement;
   private selectedRooms: Set<string> = new Set();
+  // 添加 cron 相关的输入元素
+  private scheduleDate!: HTMLInputElement;
+  private scheduleTime!: HTMLInputElement;
+  private repeatType!: HTMLSelectElement;
 
   private readonly defaultTemplates: TaskTemplate[] = [
     {
@@ -51,48 +53,47 @@ export class ScheduleManager {
   constructor(container: HTMLElement) {
     this.container = container;
     
-    // 初始化所有 DOM 元素，使用实际存在的 ID
-    const messageInput = document.getElementById('scheduleMessage');
-    const addButton = document.getElementById('addSchedule');
+    // 获取所有必需的元素
+    const roomSelectElement = document.getElementById('roomInput');
+    if (!roomSelectElement) {
+      throw new Error('Room select element not found');
+    }
+    this.roomSelect = roomSelectElement as HTMLSelectElement;
+
     const roomTags = document.getElementById('roomTags');
-    const roomInputEl = document.getElementById('roomInput');
-
-    // 类型检查和赋值
-    if (!messageInput || !addButton || !roomTags || !roomInputEl) {
-      throw new Error('必需的 DOM 元素未找到');
+    if (!roomTags) {
+      throw new Error('Room tags container not found');
     }
-
-    this.scheduleMessageInput = messageInput as HTMLTextAreaElement;
-    this.addScheduleButton = addButton as HTMLButtonElement;
     this.roomTagsContainer = roomTags;
-    this.roomInput = roomInputEl as HTMLInputElement;
 
-    // 初始化
-    this.bindEvents();
-    this.loadTasks();
-    this.initRoomTags();
-  }
-
-  private initElements() {
-    this.scheduleRoomInput = document.getElementById('scheduleRoom') as HTMLSelectElement | HTMLInputElement;
+    // 获取消息输入框和添加按钮
     this.scheduleMessageInput = document.getElementById('scheduleMessage') as HTMLTextAreaElement;
-    this.scheduleCronInput = document.getElementById('scheduleCron') as HTMLInputElement;
     this.addScheduleButton = document.getElementById('addSchedule') as HTMLButtonElement;
-  }
+    
+    // 获取时间相关的输入元素
+    this.scheduleDate = document.getElementById('scheduleDate') as HTMLInputElement;
+    this.scheduleTime = document.getElementById('scheduleTime') as HTMLInputElement;
+    this.repeatType = document.getElementById('repeatType') as HTMLSelectElement;
 
-  private validateElements(): boolean {
-    if (!this.scheduleRoomInput || !this.scheduleMessageInput || 
-        !this.scheduleCronInput || !this.addScheduleButton) {
-      console.error('Schedule elements not found');
-      return false;
+    if (!this.scheduleMessageInput || !this.addScheduleButton || 
+        !this.scheduleDate || !this.scheduleTime || !this.repeatType) {
+      throw new Error('Required schedule elements not found');
     }
-    return true;
+
+    // 初始化顺序很重要
+    this.initRoomInput();  // 1. 先初始化输入相关事件
+    this.loadRoomOptions();  // 2. 加载群聊选项到下拉框
+    this.loadWhitelistRooms();  // 3. 加载默认选中的群聊
+    this.bindScheduleEvents();  // 4. 绑定其他事件
+    this.loadTasks();  // 5. 加载现有任务
   }
 
-  private bindEvents() {
-    if (!this.addScheduleButton) return;
-
-    this.addScheduleButton.addEventListener('click', () => this.handleAddTask());
+  private bindScheduleEvents() {
+    // 绑定添加任务按钮事件
+    this.addScheduleButton.addEventListener('click', async () => {
+      console.log('Add schedule button clicked'); // 添加调试日志
+      await this.handleAddTask();
+    });
     
     // 绑定重复类型事件
     this.bindRepeatTypeEvents();
@@ -101,73 +102,88 @@ export class ScheduleManager {
   async loadTasks() {
     try {
       const tasks = await window.electronAPI.getScheduleTasks();
-      this.renderTasks(tasks);
+      if (Array.isArray(tasks)) {
+        this.renderTasks(tasks);
+      } else {
+        console.error('Invalid tasks data:', tasks);
+        this.renderTasks([]);
+      }
     } catch (error) {
       console.error('Failed to load tasks:', error);
+      this.renderTasks([]);
     }
   }
 
   private renderTasks(tasks: ScheduleTask[]) {
+    if (!Array.isArray(tasks)) {
+      console.error('Invalid tasks array:', tasks);
+      this.container.innerHTML = '';
+      return;
+    }
     this.container.innerHTML = tasks.map(task => this.renderTaskItem(task)).join('');
   }
 
   private renderTaskItem(task: ScheduleTask): string {
-    const nextRunTime = this.getNextRunTime(task.cron);
-    const lastRunStatus = task.lastStatus ? 
-      `<span class="status-badge ${task.lastStatus}">${task.lastStatus === 'success' ? '执行成功' : '执行失败'}</span>` : '';
-    
-    // 添加进度条
-    const now = new Date().getTime();
-    const nextRun = new Date(nextRunTime).getTime();
-    const lastRun = task.lastRun ? new Date(task.lastRun).getTime() : now;
-    const progress = Math.min(100, ((now - lastRun) / (nextRun - lastRun)) * 100);
+    const roomNames = task.roomNames || [];
     
     return `
-      <div class="schedule-item ${task.enabled ? '' : 'disabled'}" data-id="${task.id}">
-        <div class="schedule-item-info">
-          <div class="schedule-item-header">
-            <span class="room-name"><strong>群名称:</strong> ${task.roomName}</span>
-            <span class="status-badge ${task.enabled ? 'active' : 'inactive'}">
-              ${task.enabled ? '已启用' : '已禁用'}
-            </span>
-          </div>
-          <div class="message"><strong>消息:</strong> ${task.message}</div>
-          <div class="cron"><strong>定时规则:</strong> ${task.cron}</div>
-          <div class="execution-info">
-            ${task.lastRun ? `<div class="last-run"><strong>上次执行:</strong> ${new Date(task.lastRun).toLocaleString()} ${lastRunStatus}</div>` : ''}
-            <div class="next-run"><strong>下次执行:</strong> ${nextRunTime}</div>
-          </div>
-          <div class="execution-progress">
-            <div class="progress-bar">
-              <div class="progress" style="width: ${progress}%"></div>
+        <div class="schedule-item" data-id="${task.id}">
+            <div class="task-header">
+                <div class="task-title">发送至: ${roomNames.join(', ')}</div>
+                <div class="task-controls">
+                    <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">编辑</button>
+                    <button class="btn-copy" onclick="window.scheduleManager.copyTask('${task.id}')">复制</button>
+                    <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">删除</button>
+                </div>
             </div>
-            <span class="progress-text">距离下次执行: ${this.getTimeRemaining(nextRunTime)}</span>
-          </div>
+            <div class="task-content">${task.message}</div>
+            <div class="task-footer">
+                <div class="task-schedule">执行时间: ${this.cronToReadableText(task.cron)}</div>
+                <div class="task-status">
+                    <label class="switch">
+                        <input type="checkbox" 
+                            ${task.enabled ? 'checked' : ''} 
+                            onchange="window.scheduleManager.toggleTask('${task.id}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
         </div>
-        <div class="schedule-item-actions">
-          <button class="btn-icon edit-task" title="编辑任务" onclick="window.scheduleManager.editTask('${task.id}')">
-            <i class="icon-edit"></i>
-          </button>
-          <button class="btn-icon copy-task" title="复制任务" onclick="window.scheduleManager.copyTask('${task.id}')">
-            <i class="icon-copy"></i>
-          </button>
-          <button class="btn-${task.enabled ? 'warning' : 'success'} toggle-task">
-            ${task.enabled ? '禁用' : '启用'}
-          </button>
-          <button class="btn-danger delete-task">删除</button>
-        </div>
-      </div>
     `;
   }
 
-  private getNextRunTime(cronExpression: string): string {
-    try {
-      const parser = require('cron-parser');
-      const interval = parser.parseExpression(cronExpression);
-      return interval.next().toDate().toLocaleString();
-    } catch (error) {
-      return '无效的定时规则';
+  private cronToReadableText(cron: string): string {
+    const parts = cron.split(' ');
+    if (parts.length !== 5) return cron;
+
+    const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+
+    // 修改这里：添加对具体日期的处理
+    if (dayOfMonth !== '*' && month !== '*' && dayOfWeek === '*') {
+        // 如果是具体日期（不重复的情况）
+        const monthNames = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
+        return `${monthNames[parseInt(month) - 1]}月${dayOfMonth}日 ${hour}:${minute}`;
+    } else if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+        // 每天执行
+        return `每天 ${hour}:${minute}`;
+    } else if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
+        // 每周执行
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const days = dayOfWeek.split(',').map(d => weekdays[parseInt(d)]);
+        return `每${days.join('、')} ${hour}:${minute}`;
+    } else if (dayOfWeek.includes('L')) {
+        // 每月最后一个星期几
+        const weekday = dayOfWeek.replace('L', '');
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        return `每月最后一个${weekdays[parseInt(weekday)]} ${hour}:${minute}`;
+    } else if (dayOfWeek.includes('#')) {
+        // 每月第几个星期几
+        const [w, n] = dayOfWeek.split('#');
+        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        return `每月第${n}个${weekdays[parseInt(w)]} ${hour}:${minute}`;
     }
+
+    return cron;
   }
 
   private validateCron(cron: string): boolean {
@@ -182,46 +198,58 @@ export class ScheduleManager {
 
   private async handleAddTask() {
     try {
+      console.log('Handling add task...'); // 添加调试日志
+      
       if (this.selectedRooms.size === 0) {
         throw new Error('请选择至少一个群聊');
       }
 
       const message = this.scheduleMessageInput?.value.trim() || '';
-      const cronExpression = this.generateCronExpression(); // 使用新的方法生成 cron 表达式
+      const cronExpression = this.generateCronExpression();
+
+      console.log('Task data:', { // 添加调试日志
+        selectedRooms: Array.from(this.selectedRooms),
+        message,
+        cronExpression
+      });
 
       // 输入验证
       if (!message) {
         throw new Error('请输入消息内容');
       }
 
-      // 为每个选中的群聊创建任务
-      for (const roomName of this.selectedRooms) {
-        const task: ScheduleTask = {
-          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-          roomName,
-          message,
-          cron: cronExpression,
-          enabled: true
-        };
-
-        const result = await window.electronAPI.addScheduleTask(task);
-        if (!result.success) {
-          throw new Error(`添加任务失败: ${result.error}`);
-        }
+      if (!cronExpression) {
+        throw new Error('请设置执行时间');
       }
 
-      notification.show('定时任务添加成功', 'success');
+      // 创建任务
+      const task: ScheduleTask = {
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        roomNames: Array.from(this.selectedRooms),
+        message,
+        cron: cronExpression,
+        enabled: true
+      };
+
+      const result = await window.electronAPI.addScheduleTask(task);
+      if (!result.success) {
+        throw new Error(`添加任务失败: ${result.error}`);
+      }
+
+      notification.show('定时任务添加成功', 'success', 2000);
       this.clearForm();
       await this.loadTasks();
     } catch (error) {
-      notification.show(error instanceof Error ? error.message : '添加失败', 'error');
+      console.error('Failed to add task:', error);
+      notification.show(error instanceof Error ? error.message : '添加失败', 'error', 5000);
     }
   }
 
   private clearForm() {
-    if (this.scheduleRoomInput) this.scheduleRoomInput.value = '';
     if (this.scheduleMessageInput) this.scheduleMessageInput.value = '';
-    if (this.scheduleCronInput) this.scheduleCronInput.value = '';
+    if (this.scheduleDate) this.scheduleDate.value = '';
+    if (this.scheduleTime) this.scheduleTime.value = '';
+    if (this.repeatType) this.repeatType.value = 'once';
   }
 
   async toggleTask(taskId: string, enabled: boolean) {
@@ -231,14 +259,15 @@ export class ScheduleManager {
       if (result.success) {
         notification.show(
           `任务已${enabled ? '启用' : '禁用'}`,
-          'success'
+          'success',
+          2000  // 成功类消息显示2秒
         );
         await this.loadTasks();
       } else {
         throw new Error(result.error || '操作失败');
       }
     } catch (error) {
-      notification.show(error instanceof Error ? error.message : '操作失败', 'error');
+      notification.show(error instanceof Error ? error.message : '操作失败', 'error', 5000);  // 错误类消息显示5秒
     }
   }
 
@@ -251,13 +280,13 @@ export class ScheduleManager {
       const result = await window.electronAPI.deleteScheduleTask(taskId);
       
       if (result.success) {
-        notification.show('任务已删除', 'success');
+        notification.show('任务已删除', 'success', 2000);  // 成功类消息显示2秒
         await this.loadTasks();
       } else {
         throw new Error(result.error || '删除失败');
       }
     } catch (error) {
-      notification.show(error instanceof Error ? error.message : '删除失败', 'error');
+      notification.show(error instanceof Error ? error.message : '删除失败', 'error', 5000);  // 错误类消息显示5秒
     }
   }
 
@@ -294,14 +323,14 @@ export class ScheduleManager {
   }
 
   private bindRoomInputEvents() {
-    this.roomInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && this.roomInput.value.trim()) {
-        const roomName = this.roomInput.value.trim();
+    this.roomSelect.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && this.roomSelect.value.trim()) {
+        const roomName = this.roomSelect.value.trim();
         if (!this.selectedRooms.has(roomName)) {
           this.selectedRooms.add(roomName);
           this.addRoomTag(roomName);
         }
-        this.roomInput.value = '';
+        this.roomSelect.value = '';
       }
     });
   }
@@ -310,10 +339,33 @@ export class ScheduleManager {
     const task = await this.getTask(taskId);
     if (!task) return;
 
-    // 填充表单，添加空值检查
-    if (this.scheduleRoomInput) this.scheduleRoomInput.value = task.roomName;
+    // 填充表单，加空值检查
     if (this.scheduleMessageInput) this.scheduleMessageInput.value = task.message;
-    if (this.scheduleCronInput) this.scheduleCronInput.value = task.cron;
+    
+    // 解析 cron 表达式并填充表单
+    const cronParts = task.cron.split(' ');
+    if (cronParts.length === 5) {
+      const [minute, hour, dayOfMonth, month, dayOfWeek] = cronParts;
+      
+      // 设置时间
+      if (this.scheduleTime) {
+        this.scheduleTime.value = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+      }
+      
+      // 根据 cron 设置重复类型和日期
+      if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+        this.repeatType.value = 'daily';
+      } else if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
+        this.repeatType.value = 'weekly';
+        // 设置周几的选择
+      } else if (dayOfMonth !== '*' && month !== '*') {
+        this.repeatType.value = 'once';
+        if (this.scheduleDate) {
+          const year = new Date().getFullYear();
+          this.scheduleDate.value = `${year}-${month.padStart(2, '0')}-${dayOfMonth.padStart(2, '0')}`;
+        }
+      }
+    }
     
     // 切换按钮状态
     if (this.addScheduleButton) {
@@ -322,7 +374,7 @@ export class ScheduleManager {
     }
     
     // 滚动到表单
-    this.scheduleRoomInput?.scrollIntoView({ behavior: 'smooth' });
+    this.scheduleMessageInput?.scrollIntoView({ behavior: 'smooth' });
   }
 
   async copyTask(taskId: string) {
@@ -332,7 +384,7 @@ export class ScheduleManager {
     const newTask: ScheduleTask = {
       ...task,
       id: Date.now().toString(),
-      roomName: `${task.roomName} (副本)`,
+      roomNames: [...task.roomNames],  // 复制群名数组
     };
 
     const result = await window.electronAPI.addScheduleTask(newTask);
@@ -392,7 +444,7 @@ export class ScheduleManager {
   private formatErrorMessage(error: any): string {
     switch (error.type) {
       case 'task_failure':
-        return `定时任务执行失败 - ${error.roomName}: ${error.error}`;
+        return `定时任务执行失 - ${error.roomName}: ${error.error}`;
       case 'bot_error':
         return `机器人错误: ${error.error}`;
       default:
@@ -454,7 +506,7 @@ export class ScheduleManager {
       countdownEl.textContent = timeRemaining;
     };
 
-    // 每分钟更新一次
+    // 每钟更新一次
     const timerId = setInterval(updateCountdown, 60000);
     
     // 使用自定义属性存储定时器ID
@@ -571,10 +623,35 @@ export class ScheduleManager {
     const template = this.defaultTemplates.find(t => t.id === templateId);
     if (!template) return;
 
-    // 填充单，添加空值检查
-    if (this.scheduleRoomInput) this.scheduleRoomInput.value = template.roomName;
-    if (this.scheduleMessageInput) this.scheduleMessageInput.value = this.processTemplateMessage(template.message);
-    if (this.scheduleCronInput) this.scheduleCronInput.value = template.cron;
+    // 填充消息内容
+    if (this.scheduleMessageInput) {
+        this.scheduleMessageInput.value = this.processTemplateMessage(template.message);
+    }
+
+    // 解析 cron 表达式并填充表单
+    const cronParts = template.cron.split(' ');
+    if (cronParts.length === 5) {
+        const [minute, hour, dayOfMonth, month, dayOfWeek] = cronParts;
+        
+        // 设置时间
+        if (this.scheduleTime) {
+            this.scheduleTime.value = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+        }
+        
+        // 根据 cron 设置重复类型和日期
+        if (dayOfMonth === '*' && month === '*' && dayOfWeek === '*') {
+            this.repeatType.value = 'daily';
+        } else if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
+            this.repeatType.value = 'weekly';
+            // 设置周几的选择
+        } else if (dayOfMonth !== '*' && month !== '*') {
+            this.repeatType.value = 'once';
+            if (this.scheduleDate) {
+                const year = new Date().getFullYear();
+                this.scheduleDate.value = `${year}-${month.padStart(2, '0')}-${dayOfMonth.padStart(2, '0')}`;
+            }
+        }
+    }
 
     // 关闭模板选择器
     document.querySelector('.template-dropdown')?.classList.remove('show');
@@ -593,7 +670,7 @@ export class ScheduleManager {
   }
 
   private initTaskStatusUpdate() {
-    // 监听任务状态更新
+    // 监听任务态更新
     window.electronAPI.onTaskStatusUpdate((update: {
       taskId: string;
       status: 'running' | 'success' | 'failed';
@@ -644,61 +721,49 @@ export class ScheduleManager {
   }
 
   private generateCronExpression(): string {
+    const date = (document.getElementById('scheduleDate') as HTMLInputElement).value;
     const time = (document.getElementById('scheduleTime') as HTMLInputElement).value;
-    const [hours, minutes] = time.split(':');
     const repeatType = (document.getElementById('repeatType') as HTMLSelectElement).value;
 
-    switch (repeatType) {
-      case 'once': {
-        // 单次执行，需要包含具体日期
-        const now = new Date();
-        const [year, month, date] = [
-          now.getFullYear(),
-          now.getMonth() + 1,
-          now.getDate()
-        ];
-        return `${minutes} ${hours} ${date} ${month} *`;
-      }
-      
-      case 'daily':
-        // 每天执行
-        return `${minutes} ${hours} * * *`;
-      
-      case 'weekly': {
-        // 获取选中的星期
-        const weekdays = Array.from(document.querySelectorAll('.weekday-selector input:checked'))
-          .map(cb => (cb as HTMLInputElement).value)
-          .join(',');
-        return `${minutes} ${hours} * * ${weekdays || '*'}`;
-      }
-      
-      case 'monthly': {
-        const monthlyType = (document.getElementById('monthlyType') as HTMLSelectElement).value;
-        if (monthlyType === 'date') {
-          // 每月指定日期
-          const date = (document.getElementById('monthlyDate') as HTMLInputElement).value;
-          return `${minutes} ${hours} ${date} * *`;
-        } else {
-          // 每月指定星期
-          const order = (document.getElementById('weekOrder') as HTMLSelectElement).value;
-          const weekday = (document.getElementById('weekDay') as HTMLSelectElement).value;
-          // 这里需要更复杂的 cron 表达式来表示第几个星期几
-          return this.generateMonthlyWeekCron(minutes, hours, parseInt(order), parseInt(weekday));
-        }
-      }
-      
-      default:
-        throw new Error('无效的重复类型');
-    }
-  }
+    if (!time) return '';
 
-  private generateMonthlyWeekCron(minutes: string, hours: string, order: number, weekday: number): string {
-    if (order === -1) {
-      // 最后一个星期几
-      return `${minutes} ${hours} * * ${weekday}L`;
-    } else {
-      // 第几个星期几
-      return `${minutes} ${hours} * * ${weekday}#${order}`;
+    const [hours, minutes] = time.split(':');
+    const [year, month, day] = date ? date.split('-') : ['*', '*', '*'];
+
+    switch (repeatType) {
+        case 'once':
+            // 修改这里：指定日期执行一次时，应该使用具体的日期和月份
+            if (!date) {
+                throw new Error('请选择执行日期');
+            }
+            return `${minutes} ${hours} ${day} ${month} *`;
+            
+        case 'daily':
+            return `${minutes} ${hours} * * *`;
+            
+        case 'weekly':
+            const weekdays = Array.from(document.querySelectorAll('.weekday-selector input:checked'))
+                .map(cb => (cb as HTMLInputElement).value)
+                .join(',');
+            return `${minutes} ${hours} * * ${weekdays || '*'}`;
+            
+        case 'monthly':
+            const monthlyType = (document.getElementById('monthlyType') as HTMLSelectElement).value;
+            if (monthlyType === 'date') {
+                const monthlyDate = (document.getElementById('monthlyDate') as HTMLInputElement).value;
+                return `${minutes} ${hours} ${monthlyDate} * *`;
+            } else {
+                const weekOrder = (document.getElementById('weekOrder') as HTMLSelectElement).value;
+                const weekDay = (document.getElementById('weekDay') as HTMLSelectElement).value;
+                if (weekOrder === '-1') {
+                    return `${minutes} ${hours} * * ${weekDay}L`;
+                } else {
+                    return `${minutes} ${hours} * * ${weekDay}#${weekOrder}`;
+                }
+            }
+            
+        default:
+            return '';
     }
   }
 
@@ -721,6 +786,146 @@ export class ScheduleManager {
       monthlyDate.style.display = monthlyType.value === 'date' ? 'block' : 'none';
       monthlyWeek.style.display = monthlyType.value === 'week' ? 'block' : 'none';
     });
+  }
+
+  private async loadWhitelistRooms() {
+    try {
+      const config = await window.electronAPI.getConfig();
+      // 默认添加所有白名单群
+      config.roomWhitelist.forEach(room => {
+        this.addRoom(room);
+      });
+      console.log('Loaded whitelist rooms:', config.roomWhitelist);
+    } catch (error) {
+      console.error('Failed to load whitelist rooms:', error);
+    }
+  }
+
+  private async initRoomInput() {
+    const clearRoomsBtn = document.getElementById('clearRoomsBtn');
+    
+    // 监听下拉框变化事件
+    this.roomSelect.addEventListener('change', async () => {
+        console.log('Room select changed:', this.roomSelect.value);
+        const selectedRoom = this.roomSelect.value;
+        if (selectedRoom) {
+            await this.handleAddRoom(selectedRoom);
+        }
+    });
+
+    // 监听清空按钮点击事件
+    if (clearRoomsBtn) {
+        console.log('Clear button found, binding click event');
+        clearRoomsBtn.addEventListener('click', () => {
+            console.log('Clear button clicked');
+            this.clearAllRooms();
+        });
+    } else {
+        console.error('Clear rooms button not found');
+    }
+  }
+
+  private clearAllRooms() {
+    console.log('Clearing all rooms'); // 添加调试日志
+    // 清空已选群聊
+    this.selectedRooms.clear();
+    // 清空标签容器
+    if (this.roomTagsContainer) {
+        this.roomTagsContainer.innerHTML = '';
+    }
+    // 重新加载选项
+    this.loadRoomOptions();
+    notification.show('已清空所有已选群聊', 'warning', 2000);
+  }
+
+  private async handleAddRoom(roomName: string) {
+    try {
+        console.log('Handling add room:', roomName); // 添加调试日志
+        
+        // 检查是否已添加
+        if (this.selectedRooms.has(roomName)) {
+            notification.show('该群已添加，无需重复添加', 'warning', 2000);
+            // 清空选择
+            this.roomSelect.value = '';
+            return;
+        }
+
+        // 获取白名单配置
+        const config = await window.electronAPI.getConfig();
+        const isInWhitelist = config.roomWhitelist.includes(roomName);
+
+        if (!isInWhitelist) {
+            notification.show('请先将该群添加到白名单配置中', 'error', 5000);
+            // 清空选择
+            this.roomSelect.value = '';
+            return;
+        }
+
+        // 添加群标签
+        this.addRoom(roomName);
+        // 清空选择
+        this.roomSelect.value = '';
+        notification.show('群添加成功', 'success', 2000);
+    } catch (error) {
+        console.error('Failed to add room:', error);
+        notification.show('添加群失败', 'error', 5000);
+    }
+  }
+
+  private addRoom(roomName: string) {
+    if (this.selectedRooms.has(roomName)) return;
+
+    this.selectedRooms.add(roomName);
+    
+    const tag = document.createElement('div');
+    tag.className = 'room-tag';
+    tag.innerHTML = `
+      <span class="room-name">${roomName}</span>
+      <span class="remove-tag">×</span>
+    `;
+
+    // 添加删除事件
+    const removeBtn = tag.querySelector('.remove-tag');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        this.selectedRooms.delete(roomName);
+        tag.remove();
+        // 重新加载选项，确保被删除的群可以重新选择
+        this.loadRoomOptions();
+      });
+    }
+
+    this.roomTagsContainer.appendChild(tag);
+  }
+
+  private async loadRoomOptions() {
+    try {
+        const config = await window.electronAPI.getConfig();
+        console.log('Loading room options from config:', config.roomWhitelist); // 添加调试日志
+        
+        // 清空现有选项（保留默认选项）
+        while (this.roomSelect.options.length > 1) {
+            this.roomSelect.remove(1);
+        }
+        
+        // 添加白名单群聊作为选项（排除已选择的群）
+        config.roomWhitelist
+            .filter(room => !this.selectedRooms.has(room))
+            .forEach(room => {
+                const option = document.createElement('option');
+                option.value = room;
+                option.textContent = room;
+                this.roomSelect.appendChild(option);
+                console.log('Added room option:', room); // 添加调试日志
+            });
+
+        console.log('Room options loaded:', {
+            totalOptions: this.roomSelect.options.length,
+            selectedRooms: Array.from(this.selectedRooms)
+        });
+    } catch (error) {
+        console.error('Failed to load room options:', error);
+    }
   }
 }
 

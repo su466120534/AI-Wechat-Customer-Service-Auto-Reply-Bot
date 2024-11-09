@@ -44,12 +44,11 @@ declare global {
 
   interface ScheduleTask {
     id: string;
-    roomName: string;
+    roomNames: string[];
     message: string;
     cron: string;
     enabled: boolean;
     lastRun?: string;
-    nextRun?: string;
     lastStatus?: 'success' | 'failed';
     histories?: TaskHistory[];
   }
@@ -67,7 +66,6 @@ declare global {
   }
 
   interface TaskHistory {
-    taskId: string;
     executionTime: string;
     status: 'success' | 'failed';
     error?: string;

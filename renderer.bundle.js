@@ -7761,103 +7761,110 @@
             }
           ];
           this.container = container;
-          const messageInput = document.getElementById("scheduleMessage");
-          const addButton = document.getElementById("addSchedule");
+          const roomSelectElement = document.getElementById("roomInput");
+          if (!roomSelectElement) {
+            throw new Error("Room select element not found");
+          }
+          this.roomSelect = roomSelectElement;
           const roomTags = document.getElementById("roomTags");
-          const roomInputEl = document.getElementById("roomInput");
-          if (!messageInput || !addButton || !roomTags || !roomInputEl) {
-            throw new Error("\u5FC5\u9700\u7684 DOM \u5143\u7D20\u672A\u627E\u5230");
+          if (!roomTags) {
+            throw new Error("Room tags container not found");
           }
-          this.scheduleMessageInput = messageInput;
-          this.addScheduleButton = addButton;
           this.roomTagsContainer = roomTags;
-          this.roomInput = roomInputEl;
-          this.bindEvents();
-          this.loadTasks();
-          this.initRoomTags();
-        }
-        initElements() {
-          this.scheduleRoomInput = document.getElementById("scheduleRoom");
           this.scheduleMessageInput = document.getElementById("scheduleMessage");
-          this.scheduleCronInput = document.getElementById("scheduleCron");
           this.addScheduleButton = document.getElementById("addSchedule");
-        }
-        validateElements() {
-          if (!this.scheduleRoomInput || !this.scheduleMessageInput || !this.scheduleCronInput || !this.addScheduleButton) {
-            console.error("Schedule elements not found");
-            return false;
+          this.scheduleDate = document.getElementById("scheduleDate");
+          this.scheduleTime = document.getElementById("scheduleTime");
+          this.repeatType = document.getElementById("repeatType");
+          if (!this.scheduleMessageInput || !this.addScheduleButton || !this.scheduleDate || !this.scheduleTime || !this.repeatType) {
+            throw new Error("Required schedule elements not found");
           }
-          return true;
+          this.initRoomInput();
+          this.loadRoomOptions();
+          this.loadWhitelistRooms();
+          this.bindScheduleEvents();
+          this.loadTasks();
         }
-        bindEvents() {
-          if (!this.addScheduleButton)
-            return;
-          this.addScheduleButton.addEventListener("click", () => this.handleAddTask());
+        bindScheduleEvents() {
+          this.addScheduleButton.addEventListener("click", async () => {
+            console.log("Add schedule button clicked");
+            await this.handleAddTask();
+          });
           this.bindRepeatTypeEvents();
         }
         async loadTasks() {
           try {
             const tasks = await window.electronAPI.getScheduleTasks();
-            this.renderTasks(tasks);
+            if (Array.isArray(tasks)) {
+              this.renderTasks(tasks);
+            } else {
+              console.error("Invalid tasks data:", tasks);
+              this.renderTasks([]);
+            }
           } catch (error) {
             console.error("Failed to load tasks:", error);
+            this.renderTasks([]);
           }
         }
         renderTasks(tasks) {
+          if (!Array.isArray(tasks)) {
+            console.error("Invalid tasks array:", tasks);
+            this.container.innerHTML = "";
+            return;
+          }
           this.container.innerHTML = tasks.map((task) => this.renderTaskItem(task)).join("");
         }
         renderTaskItem(task) {
-          const nextRunTime = this.getNextRunTime(task.cron);
-          const lastRunStatus = task.lastStatus ? `<span class="status-badge ${task.lastStatus}">${task.lastStatus === "success" ? "\u6267\u884C\u6210\u529F" : "\u6267\u884C\u5931\u8D25"}</span>` : "";
-          const now = (/* @__PURE__ */ new Date()).getTime();
-          const nextRun = new Date(nextRunTime).getTime();
-          const lastRun = task.lastRun ? new Date(task.lastRun).getTime() : now;
-          const progress = Math.min(100, (now - lastRun) / (nextRun - lastRun) * 100);
+          const roomNames = task.roomNames || [];
           return `
-      <div class="schedule-item ${task.enabled ? "" : "disabled"}" data-id="${task.id}">
-        <div class="schedule-item-info">
-          <div class="schedule-item-header">
-            <span class="room-name"><strong>\u7FA4\u540D\u79F0:</strong> ${task.roomName}</span>
-            <span class="status-badge ${task.enabled ? "active" : "inactive"}">
-              ${task.enabled ? "\u5DF2\u542F\u7528" : "\u5DF2\u7981\u7528"}
-            </span>
-          </div>
-          <div class="message"><strong>\u6D88\u606F:</strong> ${task.message}</div>
-          <div class="cron"><strong>\u5B9A\u65F6\u89C4\u5219:</strong> ${task.cron}</div>
-          <div class="execution-info">
-            ${task.lastRun ? `<div class="last-run"><strong>\u4E0A\u6B21\u6267\u884C:</strong> ${new Date(task.lastRun).toLocaleString()} ${lastRunStatus}</div>` : ""}
-            <div class="next-run"><strong>\u4E0B\u6B21\u6267\u884C:</strong> ${nextRunTime}</div>
-          </div>
-          <div class="execution-progress">
-            <div class="progress-bar">
-              <div class="progress" style="width: ${progress}%"></div>
+        <div class="schedule-item" data-id="${task.id}">
+            <div class="task-header">
+                <div class="task-title">\u53D1\u9001\u81F3: ${roomNames.join(", ")}</div>
+                <div class="task-controls">
+                    <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">\u7F16\u8F91</button>
+                    <button class="btn-copy" onclick="window.scheduleManager.copyTask('${task.id}')">\u590D\u5236</button>
+                    <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">\u5220\u9664</button>
+                </div>
             </div>
-            <span class="progress-text">\u8DDD\u79BB\u4E0B\u6B21\u6267\u884C: ${this.getTimeRemaining(nextRunTime)}</span>
-          </div>
+            <div class="task-content">${task.message}</div>
+            <div class="task-footer">
+                <div class="task-schedule">\u6267\u884C\u65F6\u95F4: ${this.cronToReadableText(task.cron)}</div>
+                <div class="task-status">
+                    <label class="switch">
+                        <input type="checkbox" 
+                            ${task.enabled ? "checked" : ""} 
+                            onchange="window.scheduleManager.toggleTask('${task.id}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
         </div>
-        <div class="schedule-item-actions">
-          <button class="btn-icon edit-task" title="\u7F16\u8F91\u4EFB\u52A1" onclick="window.scheduleManager.editTask('${task.id}')">
-            <i class="icon-edit"></i>
-          </button>
-          <button class="btn-icon copy-task" title="\u590D\u5236\u4EFB\u52A1" onclick="window.scheduleManager.copyTask('${task.id}')">
-            <i class="icon-copy"></i>
-          </button>
-          <button class="btn-${task.enabled ? "warning" : "success"} toggle-task">
-            ${task.enabled ? "\u7981\u7528" : "\u542F\u7528"}
-          </button>
-          <button class="btn-danger delete-task">\u5220\u9664</button>
-        </div>
-      </div>
     `;
         }
-        getNextRunTime(cronExpression) {
-          try {
-            const parser = require_parser();
-            const interval = parser.parseExpression(cronExpression);
-            return interval.next().toDate().toLocaleString();
-          } catch (error) {
-            return "\u65E0\u6548\u7684\u5B9A\u65F6\u89C4\u5219";
+        cronToReadableText(cron) {
+          const parts = cron.split(" ");
+          if (parts.length !== 5)
+            return cron;
+          const [minute, hour, dayOfMonth, month, dayOfWeek] = parts;
+          if (dayOfMonth !== "*" && month !== "*" && dayOfWeek === "*") {
+            const monthNames = ["\u4E00", "\u4E8C", "\u4E09", "\u56DB", "\u4E94", "\u516D", "\u4E03", "\u516B", "\u4E5D", "\u5341", "\u5341\u4E00", "\u5341\u4E8C"];
+            return `${monthNames[parseInt(month) - 1]}\u6708${dayOfMonth}\u65E5 ${hour}:${minute}`;
+          } else if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
+            return `\u6BCF\u5929 ${hour}:${minute}`;
+          } else if (dayOfMonth === "*" && month === "*" && dayOfWeek !== "*") {
+            const weekdays = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+            const days = dayOfWeek.split(",").map((d) => weekdays[parseInt(d)]);
+            return `\u6BCF${days.join("\u3001")} ${hour}:${minute}`;
+          } else if (dayOfWeek.includes("L")) {
+            const weekday = dayOfWeek.replace("L", "");
+            const weekdays = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+            return `\u6BCF\u6708\u6700\u540E\u4E00\u4E2A${weekdays[parseInt(weekday)]} ${hour}:${minute}`;
+          } else if (dayOfWeek.includes("#")) {
+            const [w, n] = dayOfWeek.split("#");
+            const weekdays = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+            return `\u6BCF\u6708\u7B2C${n}\u4E2A${weekdays[parseInt(w)]} ${hour}:${minute}`;
           }
+          return cron;
         }
         validateCron(cron) {
           try {
@@ -7870,53 +7877,68 @@
         }
         async handleAddTask() {
           try {
+            console.log("Handling add task...");
             if (this.selectedRooms.size === 0) {
               throw new Error("\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u4E2A\u7FA4\u804A");
             }
             const message = this.scheduleMessageInput?.value.trim() || "";
             const cronExpression = this.generateCronExpression();
+            console.log("Task data:", {
+              selectedRooms: Array.from(this.selectedRooms),
+              message,
+              cronExpression
+            });
             if (!message) {
               throw new Error("\u8BF7\u8F93\u5165\u6D88\u606F\u5185\u5BB9");
             }
-            for (const roomName of this.selectedRooms) {
-              const task = {
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                roomName,
-                message,
-                cron: cronExpression,
-                enabled: true
-              };
-              const result = await window.electronAPI.addScheduleTask(task);
-              if (!result.success) {
-                throw new Error(`\u6DFB\u52A0\u4EFB\u52A1\u5931\u8D25: ${result.error}`);
-              }
+            if (!cronExpression) {
+              throw new Error("\u8BF7\u8BBE\u7F6E\u6267\u884C\u65F6\u95F4");
             }
-            notification_1.notification.show("\u5B9A\u65F6\u4EFB\u52A1\u6DFB\u52A0\u6210\u529F", "success");
+            const task = {
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              roomNames: Array.from(this.selectedRooms),
+              message,
+              cron: cronExpression,
+              enabled: true
+            };
+            const result = await window.electronAPI.addScheduleTask(task);
+            if (!result.success) {
+              throw new Error(`\u6DFB\u52A0\u4EFB\u52A1\u5931\u8D25: ${result.error}`);
+            }
+            notification_1.notification.show("\u5B9A\u65F6\u4EFB\u52A1\u6DFB\u52A0\u6210\u529F", "success", 2e3);
             this.clearForm();
             await this.loadTasks();
           } catch (error) {
-            notification_1.notification.show(error instanceof Error ? error.message : "\u6DFB\u52A0\u5931\u8D25", "error");
+            console.error("Failed to add task:", error);
+            notification_1.notification.show(error instanceof Error ? error.message : "\u6DFB\u52A0\u5931\u8D25", "error", 5e3);
           }
         }
         clearForm() {
-          if (this.scheduleRoomInput)
-            this.scheduleRoomInput.value = "";
           if (this.scheduleMessageInput)
             this.scheduleMessageInput.value = "";
-          if (this.scheduleCronInput)
-            this.scheduleCronInput.value = "";
+          if (this.scheduleDate)
+            this.scheduleDate.value = "";
+          if (this.scheduleTime)
+            this.scheduleTime.value = "";
+          if (this.repeatType)
+            this.repeatType.value = "once";
         }
         async toggleTask(taskId, enabled) {
           try {
             const result = await window.electronAPI.toggleScheduleTask(taskId, enabled);
             if (result.success) {
-              notification_1.notification.show(`\u4EFB\u52A1\u5DF2${enabled ? "\u542F\u7528" : "\u7981\u7528"}`, "success");
+              notification_1.notification.show(
+                `\u4EFB\u52A1\u5DF2${enabled ? "\u542F\u7528" : "\u7981\u7528"}`,
+                "success",
+                2e3
+                // 成功类消息显示2秒
+              );
               await this.loadTasks();
             } else {
               throw new Error(result.error || "\u64CD\u4F5C\u5931\u8D25");
             }
           } catch (error) {
-            notification_1.notification.show(error instanceof Error ? error.message : "\u64CD\u4F5C\u5931\u8D25", "error");
+            notification_1.notification.show(error instanceof Error ? error.message : "\u64CD\u4F5C\u5931\u8D25", "error", 5e3);
           }
         }
         async deleteTask(taskId) {
@@ -7926,13 +7948,13 @@
           try {
             const result = await window.electronAPI.deleteScheduleTask(taskId);
             if (result.success) {
-              notification_1.notification.show("\u4EFB\u52A1\u5DF2\u5220\u9664", "success");
+              notification_1.notification.show("\u4EFB\u52A1\u5DF2\u5220\u9664", "success", 2e3);
               await this.loadTasks();
             } else {
               throw new Error(result.error || "\u5220\u9664\u5931\u8D25");
             }
           } catch (error) {
-            notification_1.notification.show(error instanceof Error ? error.message : "\u5220\u9664\u5931\u8D25", "error");
+            notification_1.notification.show(error instanceof Error ? error.message : "\u5220\u9664\u5931\u8D25", "error", 5e3);
           }
         }
         async initRoomTags() {
@@ -7965,14 +7987,14 @@
           });
         }
         bindRoomInputEvents() {
-          this.roomInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && this.roomInput.value.trim()) {
-              const roomName = this.roomInput.value.trim();
+          this.roomSelect.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && this.roomSelect.value.trim()) {
+              const roomName = this.roomSelect.value.trim();
               if (!this.selectedRooms.has(roomName)) {
                 this.selectedRooms.add(roomName);
                 this.addRoomTag(roomName);
               }
-              this.roomInput.value = "";
+              this.roomSelect.value = "";
             }
           });
         }
@@ -7980,17 +8002,31 @@
           const task = await this.getTask(taskId);
           if (!task)
             return;
-          if (this.scheduleRoomInput)
-            this.scheduleRoomInput.value = task.roomName;
           if (this.scheduleMessageInput)
             this.scheduleMessageInput.value = task.message;
-          if (this.scheduleCronInput)
-            this.scheduleCronInput.value = task.cron;
+          const cronParts = task.cron.split(" ");
+          if (cronParts.length === 5) {
+            const [minute, hour, dayOfMonth, month, dayOfWeek] = cronParts;
+            if (this.scheduleTime) {
+              this.scheduleTime.value = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+            }
+            if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
+              this.repeatType.value = "daily";
+            } else if (dayOfMonth === "*" && month === "*" && dayOfWeek !== "*") {
+              this.repeatType.value = "weekly";
+            } else if (dayOfMonth !== "*" && month !== "*") {
+              this.repeatType.value = "once";
+              if (this.scheduleDate) {
+                const year = (/* @__PURE__ */ new Date()).getFullYear();
+                this.scheduleDate.value = `${year}-${month.padStart(2, "0")}-${dayOfMonth.padStart(2, "0")}`;
+              }
+            }
+          }
           if (this.addScheduleButton) {
             this.addScheduleButton.textContent = "\u4FDD\u5B58\u4FEE\u6539";
             this.addScheduleButton.dataset.editId = taskId;
           }
-          this.scheduleRoomInput?.scrollIntoView({ behavior: "smooth" });
+          this.scheduleMessageInput?.scrollIntoView({ behavior: "smooth" });
         }
         async copyTask(taskId) {
           const task = await this.getTask(taskId);
@@ -7999,7 +8035,8 @@
           const newTask = {
             ...task,
             id: Date.now().toString(),
-            roomName: `${task.roomName} (\u526F\u672C)`
+            roomNames: [...task.roomNames]
+            // 复制群名数组
           };
           const result = await window.electronAPI.addScheduleTask(newTask);
           if (result.success) {
@@ -8047,7 +8084,7 @@
         formatErrorMessage(error) {
           switch (error.type) {
             case "task_failure":
-              return `\u5B9A\u65F6\u4EFB\u52A1\u6267\u884C\u5931\u8D25 - ${error.roomName}: ${error.error}`;
+              return `\u5B9A\u65F6\u4EFB\u52A1\u6267\u884C\u5931 - ${error.roomName}: ${error.error}`;
             case "bot_error":
               return `\u673A\u5668\u4EBA\u9519\u8BEF: ${error.error}`;
             default:
@@ -8194,12 +8231,27 @@
           const template = this.defaultTemplates.find((t) => t.id === templateId);
           if (!template)
             return;
-          if (this.scheduleRoomInput)
-            this.scheduleRoomInput.value = template.roomName;
-          if (this.scheduleMessageInput)
+          if (this.scheduleMessageInput) {
             this.scheduleMessageInput.value = this.processTemplateMessage(template.message);
-          if (this.scheduleCronInput)
-            this.scheduleCronInput.value = template.cron;
+          }
+          const cronParts = template.cron.split(" ");
+          if (cronParts.length === 5) {
+            const [minute, hour, dayOfMonth, month, dayOfWeek] = cronParts;
+            if (this.scheduleTime) {
+              this.scheduleTime.value = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+            }
+            if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
+              this.repeatType.value = "daily";
+            } else if (dayOfMonth === "*" && month === "*" && dayOfWeek !== "*") {
+              this.repeatType.value = "weekly";
+            } else if (dayOfMonth !== "*" && month !== "*") {
+              this.repeatType.value = "once";
+              if (this.scheduleDate) {
+                const year = (/* @__PURE__ */ new Date()).getFullYear();
+                this.scheduleDate.value = `${year}-${month.padStart(2, "0")}-${dayOfMonth.padStart(2, "0")}`;
+              }
+            }
+          }
           document.querySelector(".template-dropdown")?.classList.remove("show");
         }
         // 处理模板消息中的变量
@@ -8251,45 +8303,40 @@
           }
         }
         generateCronExpression() {
+          const date = document.getElementById("scheduleDate").value;
           const time = document.getElementById("scheduleTime").value;
-          const [hours, minutes] = time.split(":");
           const repeatType = document.getElementById("repeatType").value;
+          if (!time)
+            return "";
+          const [hours, minutes] = time.split(":");
+          const [year, month, day] = date ? date.split("-") : ["*", "*", "*"];
           switch (repeatType) {
-            case "once": {
-              const now = /* @__PURE__ */ new Date();
-              const [year, month, date] = [
-                now.getFullYear(),
-                now.getMonth() + 1,
-                now.getDate()
-              ];
-              return `${minutes} ${hours} ${date} ${month} *`;
-            }
+            case "once":
+              if (!date) {
+                throw new Error("\u8BF7\u9009\u62E9\u6267\u884C\u65E5\u671F");
+              }
+              return `${minutes} ${hours} ${day} ${month} *`;
             case "daily":
               return `${minutes} ${hours} * * *`;
-            case "weekly": {
+            case "weekly":
               const weekdays = Array.from(document.querySelectorAll(".weekday-selector input:checked")).map((cb) => cb.value).join(",");
               return `${minutes} ${hours} * * ${weekdays || "*"}`;
-            }
-            case "monthly": {
+            case "monthly":
               const monthlyType = document.getElementById("monthlyType").value;
               if (monthlyType === "date") {
-                const date = document.getElementById("monthlyDate").value;
-                return `${minutes} ${hours} ${date} * *`;
+                const monthlyDate = document.getElementById("monthlyDate").value;
+                return `${minutes} ${hours} ${monthlyDate} * *`;
               } else {
-                const order = document.getElementById("weekOrder").value;
-                const weekday = document.getElementById("weekDay").value;
-                return this.generateMonthlyWeekCron(minutes, hours, parseInt(order), parseInt(weekday));
+                const weekOrder = document.getElementById("weekOrder").value;
+                const weekDay = document.getElementById("weekDay").value;
+                if (weekOrder === "-1") {
+                  return `${minutes} ${hours} * * ${weekDay}L`;
+                } else {
+                  return `${minutes} ${hours} * * ${weekDay}#${weekOrder}`;
+                }
               }
-            }
             default:
-              throw new Error("\u65E0\u6548\u7684\u91CD\u590D\u7C7B\u578B");
-          }
-        }
-        generateMonthlyWeekCron(minutes, hours, order, weekday) {
-          if (order === -1) {
-            return `${minutes} ${hours} * * ${weekday}L`;
-          } else {
-            return `${minutes} ${hours} * * ${weekday}#${order}`;
+              return "";
           }
         }
         bindRepeatTypeEvents() {
@@ -8308,6 +8355,110 @@
             monthlyWeek.style.display = monthlyType.value === "week" ? "block" : "none";
           });
         }
+        async loadWhitelistRooms() {
+          try {
+            const config = await window.electronAPI.getConfig();
+            config.roomWhitelist.forEach((room) => {
+              this.addRoom(room);
+            });
+            console.log("Loaded whitelist rooms:", config.roomWhitelist);
+          } catch (error) {
+            console.error("Failed to load whitelist rooms:", error);
+          }
+        }
+        async initRoomInput() {
+          const clearRoomsBtn = document.getElementById("clearRoomsBtn");
+          this.roomSelect.addEventListener("change", async () => {
+            console.log("Room select changed:", this.roomSelect.value);
+            const selectedRoom = this.roomSelect.value;
+            if (selectedRoom) {
+              await this.handleAddRoom(selectedRoom);
+            }
+          });
+          if (clearRoomsBtn) {
+            console.log("Clear button found, binding click event");
+            clearRoomsBtn.addEventListener("click", () => {
+              console.log("Clear button clicked");
+              this.clearAllRooms();
+            });
+          } else {
+            console.error("Clear rooms button not found");
+          }
+        }
+        clearAllRooms() {
+          console.log("Clearing all rooms");
+          this.selectedRooms.clear();
+          if (this.roomTagsContainer) {
+            this.roomTagsContainer.innerHTML = "";
+          }
+          this.loadRoomOptions();
+          notification_1.notification.show("\u5DF2\u6E05\u7A7A\u6240\u6709\u5DF2\u9009\u7FA4\u804A", "warning", 2e3);
+        }
+        async handleAddRoom(roomName) {
+          try {
+            console.log("Handling add room:", roomName);
+            if (this.selectedRooms.has(roomName)) {
+              notification_1.notification.show("\u8BE5\u7FA4\u5DF2\u6DFB\u52A0\uFF0C\u65E0\u9700\u91CD\u590D\u6DFB\u52A0", "warning", 2e3);
+              this.roomSelect.value = "";
+              return;
+            }
+            const config = await window.electronAPI.getConfig();
+            const isInWhitelist = config.roomWhitelist.includes(roomName);
+            if (!isInWhitelist) {
+              notification_1.notification.show("\u8BF7\u5148\u5C06\u8BE5\u7FA4\u6DFB\u52A0\u5230\u767D\u540D\u5355\u914D\u7F6E\u4E2D", "error", 5e3);
+              this.roomSelect.value = "";
+              return;
+            }
+            this.addRoom(roomName);
+            this.roomSelect.value = "";
+            notification_1.notification.show("\u7FA4\u6DFB\u52A0\u6210\u529F", "success", 2e3);
+          } catch (error) {
+            console.error("Failed to add room:", error);
+            notification_1.notification.show("\u6DFB\u52A0\u7FA4\u5931\u8D25", "error", 5e3);
+          }
+        }
+        addRoom(roomName) {
+          if (this.selectedRooms.has(roomName))
+            return;
+          this.selectedRooms.add(roomName);
+          const tag = document.createElement("div");
+          tag.className = "room-tag";
+          tag.innerHTML = `
+      <span class="room-name">${roomName}</span>
+      <span class="remove-tag">\xD7</span>
+    `;
+          const removeBtn = tag.querySelector(".remove-tag");
+          if (removeBtn) {
+            removeBtn.addEventListener("click", () => {
+              this.selectedRooms.delete(roomName);
+              tag.remove();
+              this.loadRoomOptions();
+            });
+          }
+          this.roomTagsContainer.appendChild(tag);
+        }
+        async loadRoomOptions() {
+          try {
+            const config = await window.electronAPI.getConfig();
+            console.log("Loading room options from config:", config.roomWhitelist);
+            while (this.roomSelect.options.length > 1) {
+              this.roomSelect.remove(1);
+            }
+            config.roomWhitelist.filter((room) => !this.selectedRooms.has(room)).forEach((room) => {
+              const option = document.createElement("option");
+              option.value = room;
+              option.textContent = room;
+              this.roomSelect.appendChild(option);
+              console.log("Added room option:", room);
+            });
+            console.log("Room options loaded:", {
+              totalOptions: this.roomSelect.options.length,
+              selectedRooms: Array.from(this.selectedRooms)
+            });
+          } catch (error) {
+            console.error("Failed to load room options:", error);
+          }
+        }
       };
       exports.ScheduleManager = ScheduleManager;
     }
@@ -8323,36 +8474,48 @@
         constructor() {
           this.startButton = document.getElementById("startBot");
           this.stopButton = document.getElementById("stopBot");
+          this.startButton.style.display = "inline-block";
+          this.stopButton.style.display = "none";
+          console.log("BotStatus initialized with buttons:", {
+            startButton: this.startButton,
+            stopButton: this.stopButton
+          });
         }
         updateStatus(status, message) {
           if (!this.startButton || !this.stopButton)
             return;
+          console.log("Updating bot status:", status, message);
           switch (status) {
             case "running":
-              this.startButton.disabled = true;
+              this.startButton.style.display = "none";
               this.stopButton.style.display = "inline-block";
               this.stopButton.disabled = false;
-              this.startButton.textContent = "\u8FD0\u884C\u4E2D";
+              this.stopButton.className = "btn-stop";
               break;
             case "stopped":
+              this.startButton.style.display = "inline-block";
               this.startButton.disabled = false;
-              this.stopButton.style.display = "none";
+              this.startButton.className = "btn-primary";
               this.startButton.textContent = "\u542F\u52A8\u673A\u5668\u4EBA";
+              this.stopButton.style.display = "none";
               break;
             case "waiting":
               this.startButton.disabled = true;
               this.startButton.textContent = "\u8BF7\u7A0D\u5019...";
+              this.stopButton.style.display = "none";
               break;
             case "error":
+              this.startButton.style.display = "inline-block";
               this.startButton.disabled = false;
               this.startButton.textContent = "\u91CD\u65B0\u542F\u52A8";
+              this.stopButton.style.display = "none";
               break;
           }
         }
-        // 添加这些方法，但实际上不执行任何操作，因为状态消息已经通过 key-messages 显示
-        updateConnectionStatus(status, message) {
+        // 移除不需要的方法
+        updateConnectionStatus() {
         }
-        showWarning(message) {
+        showWarning() {
         }
       };
       exports.BotStatus = BotStatus;
@@ -8390,7 +8553,8 @@
       exports.keyMessages = exports.KeyMessages = void 0;
       var KeyMessages = class {
         constructor() {
-          this.maxMessages = 50;
+          this.maxMessages = 5;
+          this.messageTimeouts = /* @__PURE__ */ new Map();
           const container = document.getElementById("keyMessages");
           if (!container) {
             console.error("KeyMessages container not found");
@@ -8406,7 +8570,7 @@
           } else {
             this.messageList = messageList;
           }
-          this.addMessage("\u7B49\u5F85\u542F\u52A8...", "info");
+          this.addMessage("\u7B49\u5F85\u542F\u52A8...", "info", false);
         }
         createDefaultContainer() {
           const container = document.createElement("div");
@@ -8423,21 +8587,47 @@
           }
           return container;
         }
-        addMessage(message, type = "info") {
+        addMessage(message, type = "info", autoRemove = true) {
           const messageElement = document.createElement("div");
           messageElement.className = `key-message ${type}`;
           const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
+          const processedMessage = this.processMessageLinks(message);
           messageElement.innerHTML = `
       <span class="time">[${time}]</span>
-      <span class="message">${message}</span>
+      <span class="message">${processedMessage}</span>
     `;
-          this.messageList.appendChild(messageElement);
+          this.messageList.insertBefore(messageElement, this.messageList.firstChild);
           while (this.messageList.children.length > this.maxMessages) {
-            this.messageList.removeChild(this.messageList.firstChild);
+            const lastChild = this.messageList.lastChild;
+            if (lastChild) {
+              const timeout = this.messageTimeouts.get(lastChild);
+              if (timeout) {
+                clearTimeout(timeout);
+                this.messageTimeouts.delete(lastChild);
+              }
+              this.messageList.removeChild(lastChild);
+            }
           }
-          messageElement.scrollIntoView({ behavior: "smooth" });
+          if (autoRemove) {
+            const timeout = setTimeout(() => {
+              messageElement.classList.add("fade-out");
+              setTimeout(() => {
+                if (messageElement.parentNode === this.messageList) {
+                  this.messageList.removeChild(messageElement);
+                }
+                this.messageTimeouts.delete(messageElement);
+              }, 300);
+            }, 3e3);
+            this.messageTimeouts.set(messageElement, timeout);
+          }
+          messageElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+        processMessageLinks(message) {
+          return message.replace(/(https?:\/\/[^\s]+)/g, (url) => `<a href="#" class="message-link" data-url="${url}">${url}</a>`);
         }
         clear() {
+          this.messageTimeouts.forEach((timeout) => clearTimeout(timeout));
+          this.messageTimeouts.clear();
           this.messageList.innerHTML = "";
         }
       };
@@ -8465,8 +8655,6 @@
           this.aitiwoKeyInput = document.getElementById("aitiwoKey");
           this.contactWhitelistTextarea = document.getElementById("contactWhitelist");
           this.roomWhitelistTextarea = document.getElementById("roomWhitelist");
-          this.importWhitelistButton = document.getElementById("importWhitelist");
-          this.exportWhitelistButton = document.getElementById("exportWhitelist");
           this.bindEvents();
           this.loadConfig();
           this.initHelpText();
@@ -8474,8 +8662,6 @@
         bindEvents() {
           this.contactWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
           this.roomWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
-          this.importWhitelistButton.addEventListener("click", () => this.handleImportWhitelist());
-          this.exportWhitelistButton.addEventListener("click", () => this.handleExportWhitelist());
           this.aitiwoKeyInput.addEventListener("blur", () => this.handleApiKeyInput());
           this.aitiwoKeyInput.addEventListener("input", () => {
             this.aitiwoKeyInput.classList.remove("invalid");
@@ -8509,71 +8695,6 @@
               notification_1.notification.show(error instanceof Error ? error.message : "\u4FDD\u5B58\u5931\u8D25", "error");
             }
           }, 500);
-        }
-        async handleImportWhitelist() {
-          try {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.accept = ".json";
-            input.onchange = async (e) => {
-              const file = e.target.files?.[0];
-              if (!file)
-                return;
-              const reader = new FileReader();
-              reader.onload = async (e2) => {
-                try {
-                  const data = JSON.parse(e2.target?.result);
-                  if (!Array.isArray(data.contacts) || !Array.isArray(data.rooms)) {
-                    throw new Error("\u65E0\u6548\u7684\u767D\u540D\u5355\u6570\u636E\u683C\u5F0F");
-                  }
-                  this.contactWhitelistTextarea.value = data.contacts.join("\n");
-                  this.roomWhitelistTextarea.value = data.rooms.join("\n");
-                  const result = await window.electronAPI.importWhitelist(data);
-                  if (result.success) {
-                    notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u5165\u6210\u529F", "success");
-                    await this.loadConfig();
-                  } else {
-                    throw new Error(result.error || "\u5BFC\u5165\u5931\u8D25");
-                  }
-                } catch (error) {
-                  notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u5165\u5931\u8D25", "error");
-                }
-              };
-              reader.readAsText(file);
-            };
-            input.click();
-          } catch (error) {
-            notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u5165\u5931\u8D25", "error");
-          }
-        }
-        async handleExportWhitelist() {
-          try {
-            const result = await window.electronAPI.exportWhitelist();
-            if (!result.success) {
-              throw new Error(result.error || "\u5BFC\u51FA\u5931\u8D25");
-            }
-            const data = JSON.stringify(result.data, null, 2);
-            const blob = new Blob([data], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `whitelist-${(/* @__PURE__ */ new Date()).toISOString().split("T")[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            notification_1.notification.show("\u767D\u540D\u5355\u5BFC\u51FA\u6210\u529F", "success");
-          } catch (error) {
-            notification_1.notification.show(error instanceof Error ? error.message : "\u5BFC\u51FA\u5931\u8D25", "error");
-          }
-        }
-        updateWhitelistStatus() {
-          const contacts = this.contactWhitelistTextarea.value.split("\n").filter(Boolean).length;
-          const rooms = this.roomWhitelistTextarea.value.split("\n").filter(Boolean).length;
-          const statusEl = document.querySelector(".whitelist-status");
-          if (statusEl) {
-            statusEl.textContent = `\u5F53\u524D\u914D\u7F6E\uFF1A${contacts} \u4E2A\u8054\u7CFB\u4EBA\uFF0C${rooms} \u4E2A\u7FA4\u7EC4`;
-          }
         }
         async handleApiKeyInput() {
           const value = this.aitiwoKeyInput.value.trim();
@@ -9080,16 +9201,26 @@
           if (!this.botStatus)
             return;
           try {
-            this.logger.info("bot", "\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...");
+            this.logger.info("bot", "\u542F\u52A8\u673A\u5668\u4EBA...");
             this.botStatus.updateStatus("waiting", "\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...");
             key_messages_1.keyMessages.addMessage("\u6B63\u5728\u542F\u52A8\u673A\u5668\u4EBA...", "info");
             const result = await window.electronAPI.startBot();
             if (result.success) {
-              const message = result.message || "\u673A\u5668\u4EBA\u542F\u52A8\u6210\u529F";
-              this.logger.info("bot", message);
-              this.botStatus.updateStatus("waiting", message);
-              key_messages_1.keyMessages.addMessage(message, "success");
-              key_messages_1.keyMessages.addMessage("\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u63CF\u4E8C\u7EF4\u7801\u767B\u5F55", "info");
+              this.botStatus.updateStatus("running", "\u673A\u5668\u4EBA\u5DF2\u542F\u52A8");
+              key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u542F\u52A8\u6210\u529F", "success");
+              const config = await window.electronAPI.getConfig();
+              if (config.aitiwoKey) {
+                key_messages_1.keyMessages.addMessage("API Key \u5DF2\u914D\u7F6E\u5E76\u9A8C\u8BC1\u901A\u8FC7", "success");
+              }
+              if (config.contactWhitelist.length > 0 || config.roomWhitelist.length > 0) {
+                key_messages_1.keyMessages.addMessage(`\u767D\u540D\u5355\u5DF2\u914D\u7F6E\uFF1A${config.roomWhitelist.length}\u4E2A\u7FA4\u804A\uFF0C${config.contactWhitelist.length}\u4E2A\u8054\u7CFB\u4EBA`, "success");
+              }
+              if (result.message?.includes("\u626B\u7801")) {
+                key_messages_1.keyMessages.addMessage("\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u63CF\u4E8C\u7EF4\u7801\u767B\u5F55", "info");
+              } else {
+                key_messages_1.keyMessages.addMessage("\u68C0\u6D4B\u5230\u5DF2\u767B\u5F55\u72B6\u6001\uFF0C\u673A\u5668\u4EBA\u5F00\u59CB\u5DE5\u4F5C", "success");
+                key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5C06\u81EA\u52A8\u56DE\u590D\u6D88\u606F", "info");
+              }
             } else {
               throw new Error(result.error || "\u542F\u52A8\u5931\u8D25");
             }
@@ -9124,53 +9255,68 @@
           }
         }
         initBotEventListeners() {
-          if (!this.qrcodeManager)
+          if (!this.qrcodeManager) {
+            console.error("QRCodeManager not initialized");
             return;
-          window.electronAPI.onQrcodeGenerated((qrcode) => {
-            this.qrcodeManager?.show(qrcode);
-            key_messages_1.keyMessages.addMessage("\u4E8C\u7EF4\u7801\u5DF2\u751F\u6210\uFF0C\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u7801\u767B\u5F55", "info");
-          });
+          }
+          console.log("Initializing bot event listeners");
           window.electronAPI.onBotEvent((event, data) => {
+            console.log("Received bot event:", event, data);
             switch (event) {
               case "login":
+                console.log("Processing login event:", data);
                 this.handleLoginEvent(data);
                 break;
               case "logout":
+                console.log("Processing logout event:", data);
                 this.handleLogoutEvent(data);
                 break;
-              case "message":
-                this.handleMessageEvent(data);
-                break;
-              case "error":
-                this.handleErrorEvent(data);
-                break;
-              case "status":
-                this.handleStatusEvent(data);
-                break;
-              case "warning":
-                this.handleWarningEvent(data);
-                break;
+              default:
+                console.log("Unhandled event type:", event, data);
             }
           });
           window.electronAPI.on("key-message", (data) => {
+            console.log("Received key message:", data);
             key_messages_1.keyMessages.addMessage(data.message, data.type);
           });
+          window.electronAPI.onQrcodeGenerated((qrcode) => {
+            console.log("Received QR code");
+            if (this.qrcodeManager) {
+              this.qrcodeManager.show(qrcode);
+            }
+          });
+          console.log("Bot event listeners initialized");
         }
         handleLoginEvent(data) {
-          if (!this.qrcodeManager || !this.botStatus)
+          console.log("Starting login event handling:", data);
+          if (!this.qrcodeManager) {
+            console.error("QRCodeManager not initialized");
             return;
+          }
+          if (!this.botStatus) {
+            console.error("BotStatus not initialized");
+            return;
+          }
+          console.log("Hiding QR code");
           this.qrcodeManager.hide();
-          this.logger.info("bot", `\u5FAE\u4FE1\u767B\u5F55\u6210\u529F: ${data.userName}`);
+          console.log("Updating bot status to running");
           this.botStatus.updateStatus("running", "\u673A\u5668\u4EBA\u5DF2\u767B\u5F55\u5E76\u8FD0\u884C\u4E2D");
+          console.log("Adding status messages");
           key_messages_1.keyMessages.addMessage(`\u5FAE\u4FE1\u767B\u5F55\u6210\u529F\uFF0C\u7528\u6237\uFF1A${data.userName}`, "success");
-          key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5F00\u59CB\u5DE5\u4F5C\uFF0C\u5C06\u81EA\u52A8\u56DE\u590D\u6D88\u606F", "info");
+          key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5DF2\u542F\u52A8\u5E76\u6B63\u5728\u8FD0\u884C", "success");
+          key_messages_1.keyMessages.addMessage("\u673A\u5668\u4EBA\u5C06\u81EA\u52A8\u56DE\u590D\u6D88\u606F", "info");
+          console.log("Login event handling completed");
         }
         handleLogoutEvent(data) {
-          if (!this.botStatus)
+          console.log("Starting logout event handling:", data);
+          if (!this.botStatus) {
+            console.error("BotStatus not initialized");
             return;
+          }
           this.logger.warning("bot", `\u7528\u6237\u5DF2\u767B\u51FA: ${data.userName}`);
           this.botStatus.updateStatus("stopped", "\u673A\u5668\u4EBA\u5DF2\u767B\u51FA");
           key_messages_1.keyMessages.addMessage(`\u5FAE\u4FE1\u5DF2\u767B\u51FA\uFF0C\u7528\u6237\uFF1A${data.userName}`, "warning");
+          console.log("Logout event handling completed");
         }
         handleMessageEvent(data) {
           this.logger.info("bot", `\u6536\u5230\u65B0\u6D88\u606F: ${data.text}`);
@@ -9184,18 +9330,25 @@
           key_messages_1.keyMessages.addMessage(errorMessage, "error");
         }
         handleStatusEvent(data) {
-          if (!this.botStatus)
+          console.log("Starting status event handling:", data);
+          if (!this.botStatus) {
+            console.error("BotStatus not initialized");
             return;
+          }
           if (data.message.includes("API Key")) {
+            console.log("Handling API Key status");
             this.botStatus.updateStatus("waiting", data.message);
             key_messages_1.keyMessages.addMessage(data.message, "warning");
           } else if (data.message.includes("\u91CD\u65B0\u8FDE\u63A5")) {
+            console.log("Handling reconnection status");
             this.botStatus.updateStatus("waiting");
             key_messages_1.keyMessages.addMessage("\u68C0\u6D4B\u5230\u8FDE\u63A5\u65AD\u5F00\uFF0C\u6B63\u5728\u5C1D\u8BD5\u91CD\u65B0\u8FDE\u63A5...", "warning");
           } else if (data.message.includes("\u91CD\u8FDE\u6210\u529F")) {
+            console.log("Handling reconnection success");
             this.botStatus.updateStatus("running");
             key_messages_1.keyMessages.addMessage("\u7F51\u7EDC\u8FDE\u63A5\u5DF2\u6062\u590D", "success");
           }
+          console.log("Status event handling completed");
         }
         handleWarningEvent(data) {
           if (!this.botStatus)

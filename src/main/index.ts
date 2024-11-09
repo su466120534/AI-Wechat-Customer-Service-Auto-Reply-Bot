@@ -20,10 +20,15 @@ import { types } from 'wechaty-puppet';
 import { AitiwoService } from './services/aitiwo';
 import { CronJob } from 'cron';
 
-// 添加 ExtendedWechaty 接口定义
+// 修改 ExtendedWechaty 接口定义
 interface ExtendedWechaty extends Wechaty {
-  isEnabled?: boolean;
+  isEnabled: boolean;
+  logonoff(): Promise<boolean>;
   isLoggedIn?: boolean;
+  puppet?: {
+    isLoggedIn: boolean;
+  };
+  userSelf: () => Promise<Contact>;
   stop(): Promise<void>;
   on(event: 'scan', listener: (qrcode: string, status: number) => void): this;
   on(event: 'login', listener: (user: Contact) => void): this;
@@ -213,7 +218,7 @@ function wrapIpcHandler(methodName: string, handler: (...args: any[]) => Promise
 function handleWindowError(window: BrowserWindow) {
   window.webContents.on('crashed', (event) => {
     logger.error('Window', '渲染进程崩溃', event);
-    // 可以选择重新加或关闭窗口
+    // 可以选择重新加载关闭窗口
     window.reload();
   });
 
@@ -263,7 +268,7 @@ function createWindow(): void {
   }
 
   mainWindow.webContents.on('dom-ready', () => {
-    logger.info('Window', 'DOM 准备就绪');
+    logger.info('Window', 'DOM 准备');
   });
 
   logger.setMainWindow(mainWindow);
@@ -295,244 +300,75 @@ function createWindow(): void {
 
 // 修改 startBot 函数
 async function startBot(config: Config, mainWindow: BrowserWindow): Promise<string> {
-  try {
-    logger.info('Bot', '开始创建机器人实例...');
-    
-    // API Key 检查
-    if (!config.aitiwoKey) {
-      logger.warn('Bot', 'API Key 未设置');
-      mainWindow.webContents.send('key-message', {
-        type: 'warning',
-        message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
-      });
-      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
-    }
+    try {
+        logger.info('Bot', '开始创建机器人实例...');
+        
+        // API Key 检查
+        if (!config.aitiwoKey) {
+            logger.warn('Bot', 'API Key 未设置');
+            mainWindow.webContents.send('key-message', {
+                type: 'warning',
+                message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
+            });
+            throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
+        }
 
-    // 检查是否已有实例在运行并且已登录
-    if (botInstance) {
-      const isLoggedIn = await checkBotStatus();
-      if (isLoggedIn) {
-        logger.info('Bot', '机器人已登录，无需重新扫码');
-        mainWindow.webContents.send('key-message', {
-          type: 'success',
-          message: '机器人已登录，正在启动...'
-        });
-        return '';
-      }
-    }
-
-    // 如果没有登录，创建新实例并显示二维码
-    logger.info('Bot', '未检测到登录状态，需要扫码登录');
-    mainWindow.webContents.send('key-message', {
-      type: 'info',
-      message: '未检测到登录状态，请扫码登录'
-    });
-
-    // 初始化 Promise
-    qrcodePromise = new Promise<string>((resolve, reject) => {
-      qrcodeResolve = resolve;
-      qrcodeReject = reject;
-    });
-
-    // 创建新实例
-    botInstance = WechatyBuilder.build({
-      name: 'wechat-bot',
-      puppet: 'wechaty-puppet-wechat4u',
-      puppetOptions: {
-        uos: true
-      }
-    }) as ExtendedWechaty;
-
-    // 添加自定义属性
-    botInstance.isEnabled = true;
-
-    // 使用类型断言来处理事件绑定
-    if (botInstance) {
-      (botInstance as Wechaty)
-        .on('scan', async (qrcode: string, status: number) => {
-          try {
-            logger.info('Bot', '收到扫码事件', { status });
-            const dataUrl = await QRCode.toDataURL(qrcode);
-            // 创建并显示二维码窗口
-            createQRCodeWindow(dataUrl);
-            qrcodeResolve(dataUrl);
-          } catch (error) {
-            logger.error('Bot', '生成二维码失败', error);
-            qrcodeReject(new AppError('生成二维码失败', ErrorCode.BOT_INIT_FAILED));
-          }
-        })
-        .on('login', (user: any) => {
-          logger.info('Bot', '登录成功', { userName: user.name() });
-          // 登录成功后关闭二维码窗口
-          closeQRCodeWindow();
-          mainWindow.webContents.send('key-message', {
-            type: 'success',
-            message: `微信登录成功，用户：${user.name()}`
-          });
-          mainWindow.webContents.send('bot-event', 'login', { 
-            userName: user.name(),
-            status: 'running',
-            message: '机器人已启动并正在运行'
-          });
-        })
-        .on('logout', (user: any) => {
-          logger.info('Bot', '已登出', { userName: user.name() });
-          mainWindow.webContents.send('bot-event', 'logout', { userName: user.name() });
-        })
-        .on('message', async (message: any) => {
-          try {
-            // 使用正确的枚举值
-            if (message.type() === types.Message.Unknown || message.type() === types.Message.Recalled) {
-              logger.debug('Bot', '忽略未知消息或撤回消息');
-              return;
+        // 创建新实例
+        botInstance = WechatyBuilder.build({
+            name: 'wechat-bot',
+            puppet: 'wechaty-puppet-wechat4u',
+            puppetOptions: {
+                uos: true
             }
+        }) as ExtendedWechaty;
 
-            const talker = message.talker() as Contact;
-            const room = message.room() as Room;
-            const text = message.text();
+        // 设置事件监听
+        botInstance
+            .on('scan', (qrcode: string, status: any) => {
+                logger.info('Bot', '收到扫码事件');
+                mainWindow.webContents.send('qrcode-generated', qrcode);
+            })
+            .on('login', async (user: any) => {
+                logger.info('Bot', '登录成功，开始处理登录事件', { userName: user.name() });
+                
+                // 更新配置中的登录状态
+                ConfigManager.updateBotStatus({
+                    isLoggedIn: true,
+                    userName: user.name()
+                });
 
-            // 如果消息内容为空，直接返回
-            if (!text.trim()) {
-              return;
-            }
-            
-            // 详细的日志记录
-            logger.info('Bot', '收到新消息', {
-              from: talker?.name(),
-              text: text,
-              room: room ? await room.topic() : undefined,
-              messageType: message.type(),
-              timestamp: message.date()
+                // 发送登录成功消息到渲染进程
+                mainWindow.webContents.send('key-message', {
+                    type: 'success',
+                    message: `微信登录成功，用户：${user.name()}`
+                });
+
+                // 发送状态更新事件
+                mainWindow.webContents.send('bot-event', 'login', { 
+                    userName: user.name(),
+                    status: 'running',
+                    message: '机器人已启动并正在运行'
+                });
+
+                // 设置机器人实例到调度管理器
+                scheduleManager.setBot(botInstance as Wechaty);
+            })
+            .on('logout', async (user: any) => {
+                logger.info('Bot', '已登出', { userName: user.name() });
+                ConfigManager.handleLogout();
+                mainWindow.webContents.send('bot-event', 'logout', {
+                    userName: user.name()
+                });
             });
 
-            // 过滤自己发送的消息
-            if (message.self()) {
-              logger.debug('Bot', '忽略自己发送的消息');
-              return;
-            }
+        await botInstance.start();
+        logger.info('Bot', '机器人启动成功');
+        return '';
 
-            // 获取最新配置，避免使用缓存的白名单
-            const config = ConfigManager.getConfig();
-
-            // 白名单验证
-            try {
-              const talkerName = talker?.name() || '';
-              let roomTopic = '';
-              
-              if (room) {
-                try {
-                  roomTopic = await room.topic();
-                } catch (error) {
-                  logger.error('Bot', '获取群名失败', error);
-                  roomTopic = (room as any).id || '未知群聊';
-                }
-              }
-
-              // 详细的白名单检查日志
-              logger.debug('Bot', '白名单检查', {
-                talkerName,
-                roomTopic,
-                inContactWhitelist: config.contactWhitelist.includes(talkerName),
-                inRoomWhitelist: config.roomWhitelist.includes(roomTopic)
-              });
-
-              const isAllowedContact = talker && config.contactWhitelist.includes(talkerName);
-              const isAllowedRoom = room && config.roomWhitelist.includes(roomTopic);
-
-              if (!isAllowedContact && !isAllowedRoom) {
-                logger.info('Bot', '消息源不在白名单中，忽略', {
-                  contact: talkerName,
-                  room: roomTopic
-                });
-                return;
-              }
-
-              // 处理群名变更情况
-              if (room && !isAllowedRoom && roomTopic) {
-                // 检查是否是群变更导致的不匹配
-                const similarRoom = config.roomWhitelist.find(name => 
-                  name.toLowerCase().replace(/\s+/g, '') === roomTopic.toLowerCase().replace(/\s+/g, '')
-                );
-                
-                if (similarRoom) {
-                  logger.info('Bot', '检测到群名变更', {
-                    oldName: similarRoom,
-                    newName: roomTopic
-                  });
-                  
-                  // 更新白名单中的群名
-                  const updatedRooms = config.roomWhitelist.map(name => 
-                    name === similarRoom ? roomTopic : name
-                  );
-                  
-                  await ConfigManager.setWhitelists(config.contactWhitelist, updatedRooms);
-                  logger.info('Bot', '已更新群名白名单');
-                }
-              }
-
-              // 调用 AI 接口获取回复
-              try {
-                const response = await callAIWithRetry(text);
-
-                // 发送回复
-                if (room) {
-                  await room.say(response);
-                  logger.info('Bot', '群聊回复成功', {
-                    room: roomTopic,
-                    message: response
-                  });
-                } else if (talker) {
-                  await (talker as any).say(response);
-                  logger.info('Bot', '私聊回复成功', {
-                    contact: talkerName,
-                    message: response
-                  });
-                }
-
-              } catch (error) {
-                logger.error('Bot', 'AI 回复失败', {
-                  error: error instanceof Error ? error.message : '未知错误',
-                  contact: talkerName,
-                  room: roomTopic,
-                  originalMessage: text
-                });
-                
-                const errorMessage = '抱歉，我现在无法回复，请稍后再试';
-                try {
-                  if (room) {
-                    await room.say(errorMessage);
-                  } else if (talker) {
-                    await (talker as any).say(errorMessage);
-                  }
-                } catch (sendError) {
-                  logger.error('Bot', '发送错误消息失败', sendError);
-                }
-              }
-
-            } catch (error) {
-              logger.error('Bot', '白名单验证失败', error);
-            }
-
-          } catch (error) {
-            logger.error('Bot', '处消息失败', error);
-          }
-        });
-
-      await (botInstance as Wechaty).start();
-      logger.info('Bot', '机器人启动成功');
-
-      return await qrcodePromise;
+    } catch (error) {
+        logger.error('Bot', '启动失败', error);
+        throw error;
     }
-
-    throw new Error('创建机器人实例失败');
-  } catch (error) {
-    // 如果出错，确保 reject Promise
-    if (qrcodeReject) {
-      qrcodeReject(error);
-    }
-    logger.error('Bot', '创建机器人实例失败', error);
-    throw new AppError('创建机器人实例失败', ErrorCode.BOT_INIT_FAILED);
-  }
 }
 
 function startConnectionCheck(): void {
@@ -627,7 +463,7 @@ app.whenReady().then(async () => {
     // 注册所有 IPC 处理器
     registerIpcHandlers();
     
-    // 创建窗口 - 只在这里创建一次
+    // 创建口 - 只在这里创建一次
     createWindow();
     
     // 设置自动更新
@@ -796,11 +632,30 @@ async function checkBotStatus(): Promise<boolean> {
     return false;
   }
   try {
-    // 等待实例准备就绪
-    await new Promise(resolve => setTimeout(resolve, 1000));  // 给予初始化时间
-    return botInstance.isLoggedIn || false;
+    // 添加更详细的调试日志
+    logger.info('Bot', '检查登录状态', {
+      botInstance: !!botInstance,
+      puppet: !!botInstance.puppet,
+      isLoggedIn: botInstance.puppet?.isLoggedIn
+    });
+
+    // 用 puppet 的登录状态
+    const isLoggedIn = botInstance.puppet?.isLoggedIn;
+    
+    // 如果已登录发送状态更新
+    if (isLoggedIn && mainWindow) {
+      mainWindow.webContents.send('bot-event', 'login', {
+        userName: (await botInstance.userSelf()).name(),
+        status: 'running',
+        message: '机器人已启动并正在运行'
+      });
+    }
+
+    logger.info('Bot', '登录状态检查结果:', { isLoggedIn });
+    return !!isLoggedIn;  // 确保返回布尔值
   } catch (error) {
-    return false;  // 静默失败，返回未登录状态
+    logger.error('Bot', '检查登录状态失败', error);
+    return false;  // 出错时返回 false
   }
 }
 
@@ -896,7 +751,7 @@ async function migrateWhitelistConfig() {
     const aliasWhitelist = process.env.ALIAS_WHITELIST || 'iamsujiang';
     const roomWhitelist = process.env.ROOM_WHITELIST || 'AI测试';
 
-    // 验证和清理白名单数据
+    // 证和清理白名单数据
     const contacts = aliasWhitelist
       .split(',')
       .map(item => item.trim())
@@ -921,7 +776,7 @@ async function migrateWhitelistConfig() {
         return isValid;
       });
 
-    // 获取当前配置
+    // 获当前配置
     const currentConfig = ConfigManager.getConfig();
     
     // 如果当前配置中没有白名单据，则进行迁移
