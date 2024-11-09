@@ -81,6 +81,7 @@ class ScheduleManager {
             roomName,
             error: error instanceof Error ? error.message : '未知错误'
           });
+          throw error;  // 抛出错误以触发重试机制
         }
       }
 

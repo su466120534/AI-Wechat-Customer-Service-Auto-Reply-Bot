@@ -36,9 +36,10 @@ interface ExtendedWechaty extends Wechaty {
   on(event: 'message', listener: (message: Message) => void): this;
 }
 
-// 在顶部声明 wechaty 相关的变量
+// 在文件顶部声明 wechaty 相关的变量
 const wechaty = require('wechaty')
 const { WechatyBuilder } = wechaty
+const { ScanStatus } = require('wechaty-puppet')
 let botInstance: ExtendedWechaty | null = null;
 let qrcodeWindow: BrowserWindow | null = null;
 let isStarting = false;  // 添加启动状态标志
@@ -120,7 +121,7 @@ const defaultRecoveryStrategy: ErrorRecoveryStrategy = {
     });
   },
   onMaxRetriesExceeded: (error: AppError) => {
-    logger.error('Recovery', '超过最大重试次数', {
+    logger.error('Recovery', '超过最重试次数', {
       error: error.message,
       code: error.code
     });
@@ -313,6 +314,13 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
         }
 
+        // 如果已有实例在运行，先停止
+        if (botInstance) {
+            logger.info('Bot', '停止现有机器人实例');
+            await botInstance.stop();
+            botInstance = null;
+        }
+
         // 创建新实例
         botInstance = WechatyBuilder.build({
             name: 'wechat-bot',
@@ -324,18 +332,39 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
 
         // 设置事件监听
         botInstance
-            .on('scan', (qrcode: string, status: any) => {
+            .on('scan', async (qrcode: string, status: any) => {
                 logger.info('Bot', '收到扫码事件');
-                mainWindow.webContents.send('qrcode-generated', qrcode);
+                try {
+                    // 生成二维码图片
+                    const qrcodeDataUrl = await QRCode.toDataURL(qrcode);
+                    logger.info('Bot', '二维码图片生成成功');
+
+                    // 创建二维码窗口
+                    createQRCodeWindow(qrcodeDataUrl);
+                } catch (error) {
+                    logger.error('Bot', '生成二码失败', error);
+                }
             })
             .on('login', async (user: any) => {
                 logger.info('Bot', '登录成功，开始处理登录事件', { userName: user.name() });
                 
+                // 确保关闭二维码窗口
+                if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+                    logger.info('Bot', '正在关闭二维码窗口');
+                    qrcodeWindow.close();
+                    qrcodeWindow = null;
+                }
+
                 // 更新配置中的登录状态
                 ConfigManager.updateBotStatus({
                     isLoggedIn: true,
                     userName: user.name()
                 });
+
+                // 确保 mainWindow 存在
+                if (!mainWindow) {
+                    throw new Error('主窗口未初始化');
+                }
 
                 // 发送登录成功消息到渲染进程
                 mainWindow.webContents.send('key-message', {
@@ -352,19 +381,60 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
 
                 // 设置机器人实例到调度管理器
                 scheduleManager.setBot(botInstance as Wechaty);
+
+                logger.info('Bot', '登录事件处理完成，已发送所有通知');
             })
-            .on('logout', async (user: any) => {
-                logger.info('Bot', '已登出', { userName: user.name() });
-                ConfigManager.handleLogout();
-                mainWindow.webContents.send('bot-event', 'logout', {
-                    userName: user.name()
-                });
+            .on('message', async (message: any) => {
+                try {
+                    // 如果消息来自自己，忽略
+                    if (message.self()) {
+                        return;
+                    }
+
+                    // 获取配置
+                    const config = ConfigManager.getConfig();
+                    const aiService = new AitiwoService(config.aitiwoKey);
+
+                    // 检查是否来自群聊
+                    const room = message.room();
+                    if (room) {
+                        const topic = await room.topic();
+                        // 检查群是否在白名单中
+                        if (!config.roomWhitelist.includes(topic)) {
+                            return;
+                        }
+
+                        // 获取消息文本
+                        const text = message.text();
+                        if (!text) return;
+
+                        logger.info('Bot', '收到群消息', {
+                            room: topic,
+                            message: text
+                        });
+
+                        // 调用 AI 服务
+                        const reply = await aiService.chat(text);
+                        
+                        // 发送回复
+                        await room.say(reply);
+                        
+                        logger.info('Bot', '已回复群消息', {
+                            room: topic,
+                            reply
+                        });
+                    }
+                } catch (error) {
+                    logger.error('Bot', '处理消息失败', error);
+                }
             });
 
+        // 启动机器人并开始状态监控
         await botInstance.start();
         logger.info('Bot', '机器人启动成功');
+        startStatusMonitor();
+        
         return '';
-
     } catch (error) {
         logger.error('Bot', '启动失败', error);
         throw error;
@@ -480,7 +550,7 @@ app.on('window-all-closed', () => {
   }
 })
 
-// 错误处理
+// 错处理
 process.on('uncaughtException', (error) => {
   logger.error('Process', '未捕获的异常', error)
 })
@@ -491,107 +561,107 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 修改二维码窗口创建函数
 function createQRCodeWindow(qrcodeDataUrl: string) {
-  // 如果已存在窗口，先关闭
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.close();
-  }
-
-  qrcodeWindow = new BrowserWindow({
-    width: 400,
-    height: 500,
-    title: '微信登录',
-    autoHideMenuBar: true,
-    resizable: false,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      webSecurity: false  // 允许加载 data URL
+    // 如果已存在窗口，先关闭
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.close();
     }
-  });
 
-  // 修改 HTML 内容
-  const html = `
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>微信登录</title>
-        <meta charset="utf-8">
-        <style>
-          body {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            background: #f5f5f5;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          }
-          .container {
-            text-align: center;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          }
-          img {
-            max-width: 280px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            padding: 10px;
-            background: white;
-          }
-          h3 {
-            color: #333;
-            margin: 0 0 20px;
-          }
-          p {
-            color: #666;
-            margin: 20px 0 0;
-            font-size: 14px;
-          }
-          .status {
-            margin-top: 10px;
-            color: #666;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <h3>请使用微信扫码登录</h3>
-          <img src="${qrcodeDataUrl}" alt="微信登录二维码">
-          <p class="status">扫码后请在手机上确认登录</p>
-        </div>
-      </body>
-    </html>
-  `;
+    qrcodeWindow = new BrowserWindow({
+        width: 400,
+        height: 500,
+        title: '微信登录',
+        autoHideMenuBar: true,
+        resizable: false,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+            webSecurity: false  // 允许加载 data URL
+        }
+    });
 
-  qrcodeWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  
-  // 窗口关闭时清理引用
-  qrcodeWindow.on('closed', () => {
-    qrcodeWindow = null;
-  });
+    // 修改 HTML 内容
+    const html = `
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <title>微信登录</title>
+                <meta charset="utf-8">
+                <style>
+                    body {
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        height: 100vh;
+                        margin: 0;
+                        background: #f5f5f5;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    }
+                    .container {
+                        text-align: center;
+                        padding: 20px;
+                        background: white;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                    }
+                    img {
+                        max-width: 280px;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                        padding: 10px;
+                        background: white;
+                    }
+                    h3 {
+                        color: #333;
+                        margin: 0 0 20px;
+                    }
+                    p {
+                        color: #666;
+                        margin: 20px 0 0;
+                        font-size: 14px;
+                    }
+                    .status {
+                        margin-top: 10px;
+                        color: #666;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h3>请��用微信扫码登录</h3>
+                    <img src="${qrcodeDataUrl}" alt="微信登录二维码">
+                    <p class="status">扫码后请在手机上确认登录</p>
+                </div>
+            </body>
+        </html>
+    `;
 
-  return qrcodeWindow;
+    qrcodeWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    
+    // 窗口关闭时清理引用
+    qrcodeWindow.on('closed', () => {
+        qrcodeWindow = null;
+    });
+
+    return qrcodeWindow;
 }
 
 // 更新二维码状态
 function updateQRCodeStatus(status: string) {
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.webContents.executeJavaScript(`
-      document.querySelector('.status').textContent = '${status}';
-    `);
-  }
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.webContents.executeJavaScript(`
+            document.querySelector('.status').textContent = '${status}';
+        `);
+    }
 }
 
 // 显示重试按钮
 function showRetryButton() {
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.webContents.executeJavaScript(`
-      document.querySelector('.retry-button').style.display = 'inline-block';
-    `);
-  }
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.webContents.executeJavaScript(`
+            document.querySelector('.retry-button').style.display = 'inline-block';
+        `);
+    }
 }
 
 // 重试制
@@ -601,372 +671,394 @@ const MAX_RETRY_COUNT = 3;
 const RETRY_DELAY = 5000; // 5秒
 
 async function retryStartBot() {
-  try {
-    logger.info('Recovery', '尝试重新连接机器人');
-    const config = ConfigManager.getConfig();
-    
-    if (!mainWindow) {
-      throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
+    try {
+        logger.info('Recovery', '尝试重新连机器人');
+        const config = ConfigManager.getConfig();
+        
+        if (!mainWindow) {
+            throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
+        }
+        
+        await startBot(config, mainWindow);  // 添加 mainWindow 参数
+    } catch (error) {
+        logger.error('Recovery', '重连失败', error);
+        throw error;
     }
-    
-    await startBot(config, mainWindow);  // 添加 mainWindow 参数
-  } catch (error) {
-    logger.error('Recovery', '重连失败', error);
-    throw error;
-  }
 }
 
 // 监听主窗口关闭事件，同时关闭二维码口
 app.on('window-all-closed', () => {
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.close();
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.close();
+    }
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
 
 // 修改状态检查函数
 async function checkBotStatus(): Promise<boolean> {
-  if (!botInstance) {
-    return false;
-  }
-  try {
-    // 添加更详细的调试日志
-    logger.info('Bot', '检查登录状态', {
-      botInstance: !!botInstance,
-      puppet: !!botInstance.puppet,
-      isLoggedIn: botInstance.puppet?.isLoggedIn
-    });
-
-    // 用 puppet 的登录状态
-    const isLoggedIn = botInstance.puppet?.isLoggedIn;
-    
-    // 如果已登录发送状态更新
-    if (isLoggedIn && mainWindow) {
-      mainWindow.webContents.send('bot-event', 'login', {
-        userName: (await botInstance.userSelf()).name(),
-        status: 'running',
-        message: '机器人已启动并正在运行'
-      });
+    if (!botInstance) {
+        return false;
     }
+    try {
+        // 添加更详细的调试日志
+        logger.info('Bot', '检查登录状态', {
+            botInstance: !!botInstance,
+            puppet: !!botInstance.puppet,
+            isLoggedIn: botInstance.puppet?.isLoggedIn
+        });
 
-    logger.info('Bot', '登录状态检查结果:', { isLoggedIn });
-    return !!isLoggedIn;  // 确保返回布尔值
-  } catch (error) {
-    logger.error('Bot', '检查登录状态失败', error);
-    return false;  // 出错时返回 false
-  }
+        // 用 puppet 的登录状态
+        const isLoggedIn = botInstance.puppet?.isLoggedIn;
+        
+        // 如果已登录发送状态更新
+        if (isLoggedIn && mainWindow) {
+            mainWindow.webContents.send('bot-event', 'login', {
+                userName: (await botInstance.userSelf()).name(),
+                status: 'running',
+                message: '机器人已启动并正在运行'
+            });
+        }
+
+        logger.info('Bot', '登录状态检查结果:', { isLoggedIn });
+        return !!isLoggedIn;  // 确保返回布尔值
+    } catch (error) {
+        logger.error('Bot', '检查登录状态失败', error);
+        return false;  // 出错时返回 false
+    }
 }
 
 // 修改获取实数
 async function getBotInstance(config: any): Promise<any> {
-  try {
-    // 防止重复启动
-    if (isStarting) {
-      logger.info('Bot', '机器人正在启动中...');
-      return botInstance;
+    try {
+        // 防止重复启动
+        if (isStarting) {
+            logger.info('Bot', '机器人正在启动中...');
+            return botInstance;
+        }
+
+        // 如果例存在且已登录，直接返回
+        if (botInstance && await checkBotStatus()) {
+            logger.info('Bot', '使用现有登录状态');
+            return botInstance;
+        }
+
+        // 如果有旧实例，先停止
+        if (botInstance) {
+            await botInstance.stop();
+            botInstance = null;
+        }
+
+        isStarting = true;
+        logger.info('Bot', '创建新的机器人实例...');
+        
+        botInstance = WechatyBuilder.build({
+            name: 'wechat-bot',
+            puppet: 'wechaty-puppet-wechat4u',
+            puppetOptions: {
+                uos: true
+            }
+        });
+
+        return botInstance;
+    } catch (error) {
+        logger.error('Bot', '获取机器人实例失败', error);
+        throw new AppError('获取机器人实例失败', ErrorCode.BOT_INIT_FAILED);
+    } finally {
+        isStarting = false;
     }
-
-    // 如果例存在且已登录，直接返回
-    if (botInstance && await checkBotStatus()) {
-      logger.info('Bot', '使用现有登录状态');
-      return botInstance;
-    }
-
-    // 如果有旧实例，先停止
-    if (botInstance) {
-      await botInstance.stop();
-      botInstance = null;
-    }
-
-    isStarting = true;
-    logger.info('Bot', '创建新的机器人实例...');
-    
-    botInstance = WechatyBuilder.build({
-      name: 'wechat-bot',
-      puppet: 'wechaty-puppet-wechat4u',
-      puppetOptions: {
-        uos: true
-      }
-    });
-
-    return botInstance;
-  } catch (error) {
-    logger.error('Bot', '获取机器人实例失败', error);
-    throw new AppError('获取机器人实例失败', ErrorCode.BOT_INIT_FAILED);
-  } finally {
-    isStarting = false;
-  }
 }
 
 // 修改应用退出时的处理
 app.on('before-quit', async () => {
-  if (botInstance) {
-    try {
-      // 不调用 stop()，只清理引用
-      botInstance = null;
-      logger.info('App', '应用退出，保持微信登录状态');
-    } catch (error) {
-      logger.error('App', '应用退出处理失败', error);
+    if (botInstance) {
+        try {
+            // 不调用 stop()，只清理引用
+            botInstance = null;
+            logger.info('App', '应用退出，保持微信登录状');
+        } catch (error) {
+            logger.error('App', '应用退出处理失败', error);
+        }
     }
-  }
 });
 
 // 添加窗口关闭事件处理
 app.on('window-all-closed', () => {
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.close();
-  }
-  
-  // 在 macOS 上点击关闭按钮时不退出应用
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.close();
+    }
+    
+    // 在 macOS 上点击关闭按钮时不退出应用
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
 });
 
 // 添加应用激活事件处理（macOS）
 app.on('activate', () => {
-  // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
-  // 通常在应用程序中重新创建一个窗口。
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+    // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
+    // 通常在应用程序中重新创建一个窗口。
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
 });
 
 // 添加件发送函数
 function sendBotEvent(event: string, data: any) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('bot-event', event, data);
-  }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('bot-event', event, data);
+    }
 }
 
 // 修改配置迁移函数
 async function migrateWhitelistConfig() {
-  try {
-    // 加载 .env 文件
-    dotenv.config();
-    
-    // 获取白名单配置，如果为空则使用默认值
-    const aliasWhitelist = process.env.ALIAS_WHITELIST || 'iamsujiang';
-    const roomWhitelist = process.env.ROOM_WHITELIST || 'AI测试';
+    try {
+        // 加载 .env 文件
+        dotenv.config();
+        
+        // 获取白名单配置，如果为空则使用默认值
+        const aliasWhitelist = process.env.ALIAS_WHITELIST || 'iamsujiang';
+        const roomWhitelist = process.env.ROOM_WHITELIST || 'AI测试';
 
-    // 证和清理白名单数据
-    const contacts = aliasWhitelist
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => {
-        // 过滤掉空值和特殊字符
-        const isValid = item && !/[<>:"/\\|?*]/.test(item);
-        if (!isValid && item) {
-          logger.warn('Config', `联系人白名单包含无效值: ${item}`);
+        // 证和清理白名单数据
+        const contacts = aliasWhitelist
+            .split(',')
+            .map(item => item.trim())
+            .filter(item => {
+                // 过滤掉空值和特殊字符
+                const isValid = item && !/[<>:"/\\|?*]/.test(item);
+                if (!isValid && item) {
+                    logger.warn('Config', `联系人白名单包含无效值: ${item}`);
+                }
+                return isValid;
+            });
+
+        const rooms = roomWhitelist
+            .split(',')
+            .map(item => item.trim())
+            .filter(item => {
+                // 过滤掉空值和特殊字符
+                const isValid = item && !/[<>:"/\\|?*]/.test(item);
+                if (!isValid && item) {
+                    logger.warn('Config', `群聊白名单包含无效值: ${item}`);
+                }
+                return isValid;
+            });
+
+        // 获当前配置
+        const currentConfig = ConfigManager.getConfig();
+        
+        // 如果当前配置中没有白名单据，则进行迁
+        if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
+            logger.info('Config', '开始迁移白名单配置');
+            
+            // 使用默认值或环境变中的值
+            const defaultContacts = contacts.length > 0 ? contacts : ['iamsujiang'];
+            const defaultRooms = rooms.length > 0 ? rooms : ['AI测试'];
+            
+            // 设白名单
+            await ConfigManager.setWhitelists(defaultContacts, defaultRooms);
+            
+            logger.info('Config', '白名单配置迁移成功', {
+                contacts: defaultContacts,
+                rooms: defaultRooms
+            });
+
+            // 通过主窗口通知用户
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('config-migrated', {
+                    contacts: defaultContacts,
+                    rooms: defaultRooms
+                });
+            }
+        } else {
+            logger.info('Config', '已存在白名单配置，跳过迁移');
         }
-        return isValid;
-      });
-
-    const rooms = roomWhitelist
-      .split(',')
-      .map(item => item.trim())
-      .filter(item => {
-        // 过滤掉空值和特殊字符
-        const isValid = item && !/[<>:"/\\|?*]/.test(item);
-        if (!isValid && item) {
-          logger.warn('Config', `群聊白名单包含无效值: ${item}`);
+    } catch (error) {
+        logger.error('Config', '白名单配置迁移失败', error);
+        // 记录错误但不中断应用启动
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('config-migration-failed', {
+                error: error instanceof Error ? error.message : '配置迁移失败'
+            });
         }
-        return isValid;
-      });
-
-    // 获当前配置
-    const currentConfig = ConfigManager.getConfig();
-    
-    // 如果当前配置中没有白名单据，则进行迁移
-    if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
-      logger.info('Config', '开始迁移白名单配置');
-      
-      // 使用默认值或环境变量中的值
-      const defaultContacts = contacts.length > 0 ? contacts : ['iamsujiang'];
-      const defaultRooms = rooms.length > 0 ? rooms : ['AI测试'];
-      
-      // 设置白名单
-      await ConfigManager.setWhitelists(defaultContacts, defaultRooms);
-      
-      logger.info('Config', '白名单配置迁移成功', {
-        contacts: defaultContacts,
-        rooms: defaultRooms
-      });
-
-      // 通过主窗口通知用户
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('config-migrated', {
-          contacts: defaultContacts,
-          rooms: defaultRooms
-        });
-      }
-    } else {
-      logger.info('Config', '已存在白名单配置，跳过迁移');
     }
-  } catch (error) {
-    logger.error('Config', '白名单配置迁移失败', error);
-    // 记录错误但不中断应用启动
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('config-migration-failed', {
-        error: error instanceof Error ? error.message : '配置迁移失败'
-      });
-    }
-  }
 }
 
 async function callAIWithRetry(message: string, retryCount = 3) {
-  const config = ConfigManager.getConfig();
-  const aiService = new AitiwoService(config.aitiwoKey);
-  
-  try {
-    return await aiService.chat(message);
-  } catch (error) {
-    logger.error('Bot', 'AI 调用失败', error);
-    throw error;
-  }
+    const config = ConfigManager.getConfig();
+    const aiService = new AitiwoService(config.aitiwoKey);
+    
+    try {
+        return await aiService.chat(message);
+    } catch (error) {
+        logger.error('Bot', 'AI 调用失败', error);
+        throw error;
+    }
 }
 
 
 // 添加关闭二维码窗口的函数
 function closeQRCodeWindow() {
-  if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-    qrcodeWindow.close();
-    qrcodeWindow = null;
-  }
+    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        qrcodeWindow.close();
+        qrcodeWindow = null;
+    }
 }
 
 
 // 1. 在文件顶部定义所有 IPC 通道名称
 const IPC_CHANNELS = {
-  // 配置相关
-  GET_CONFIG: 'getConfig',
-  SAVE_WHITELIST: 'save-whitelist',
-  SAVE_AITIWO_KEY: 'save-aitiwo-key',
-  IMPORT_WHITELIST: 'import-whitelist',
-  EXPORT_WHITELIST: 'export-whitelist',
-  
-  // 机器人相关
-  START_BOT: 'startBot',
-  STOP_BOT: 'stopBot',
-  
-  // 定时任务相关
-  GET_SCHEDULE_TASKS: 'getScheduleTasks',
-  ADD_SCHEDULE_TASK: 'addScheduleTask',
-  TOGGLE_SCHEDULE_TASK: 'toggleScheduleTask',
-  DELETE_SCHEDULE_TASK: 'deleteScheduleTask'
+    // 配置相关
+    GET_CONFIG: 'getConfig',
+    SAVE_WHITELIST: 'save-whitelist',
+    SAVE_AITIWO_KEY: 'save-aitiwo-key',
+    IMPORT_WHITELIST: 'import-whitelist',
+    EXPORT_WHITELIST: 'export-whitelist',
+    
+    // 机器人相关
+    START_BOT: 'startBot',
+    STOP_BOT: 'stopBot',
+    
+    // 定时任务相关
+    GET_SCHEDULE_TASKS: 'getScheduleTasks',
+    ADD_SCHEDULE_TASK: 'addScheduleTask',
+    TOGGLE_SCHEDULE_TASK: 'toggleScheduleTask',
+    DELETE_SCHEDULE_TASK: 'deleteScheduleTask'
 } as const;
 
 // 2. 集中定义所有 IPC 处理器
 const ipcHandlers = {
-  // 配置相关处理器
-  [IPC_CHANNELS.GET_CONFIG]: async () => {
-    const config = ConfigManager.getConfig();
-    return {
-      roomWhitelist: config.roomWhitelist || [],
-      contactWhitelist: config.contactWhitelist || [],
-      aitiwoKey: config.aitiwoKey,
-      schedules: config.schedules || []
-    };
-  },
+    // 配置相关处理器
+    [IPC_CHANNELS.GET_CONFIG]: async () => {
+        const config = ConfigManager.getConfig();
+        return {
+            roomWhitelist: config.roomWhitelist || [],
+            contactWhitelist: config.contactWhitelist || [],
+            aitiwoKey: config.aitiwoKey,
+            schedules: config.schedules || []
+        };
+    },
 
-  [IPC_CHANNELS.SAVE_WHITELIST]: async (event: any, { contacts, rooms }: any) => {
-    await ConfigManager.setWhitelists(contacts, rooms);
-    return { success: true };
-  },
+    [IPC_CHANNELS.SAVE_WHITELIST]: async (event: any, { contacts, rooms }: any) => {
+        await ConfigManager.setWhitelists(contacts, rooms);
+        return { success: true };
+    },
 
-  [IPC_CHANNELS.SAVE_AITIWO_KEY]: async (event: any, key: string) => {
-    await ConfigManager.setAitiwoKey(key);
-    return { success: true };
-  },
+    [IPC_CHANNELS.SAVE_AITIWO_KEY]: async (event: any, key: string) => {
+        await ConfigManager.setAitiwoKey(key);
+        return { success: true };
+    },
 
-  // 机器人相关处理器
-  [IPC_CHANNELS.START_BOT]: async () => {
-    const config = ConfigManager.getConfig();
-    if (!config.aitiwoKey) {
-      throw new AppError('请先设置 API Key', ErrorCode.CONFIG_INVALID);
+    // 机器人相关处理器
+    [IPC_CHANNELS.START_BOT]: async () => {
+        const config = ConfigManager.getConfig();
+        if (!config.aitiwoKey) {
+            throw new AppError('请设置 API Key', ErrorCode.CONFIG_INVALID);
+        }
+        if (!mainWindow) {
+            throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
+        }
+        const qrcode = await startBot(config, mainWindow);
+        return { 
+            success: true,
+            message: qrcode ? '请码登录' : '机器人已启动'
+        };
+    },
+
+    [IPC_CHANNELS.STOP_BOT]: async () => {
+        if (!botInstance) {
+            return { success: true, message: '机器人已经停止' };
+        }
+        botInstance.isEnabled = false;
+        return { success: true, message: '机器人已暂停自动回复' };
+    },
+
+    // 定时任务相关处理器
+    [IPC_CHANNELS.GET_SCHEDULE_TASKS]: async () => {
+        return ConfigManager.getConfig().schedules || [];
+    },
+
+    [IPC_CHANNELS.ADD_SCHEDULE_TASK]: async (event: any, task: any) => {
+        ConfigManager.addScheduleTask(task);
+        return { success: true };
+    },
+
+    [IPC_CHANNELS.TOGGLE_SCHEDULE_TASK]: async (event: any, taskId: string, enabled: boolean) => {
+        ConfigManager.updateScheduleTask(taskId, enabled);
+        return { success: true };
+    },
+
+    [IPC_CHANNELS.DELETE_SCHEDULE_TASK]: async (event: any, taskId: string) => {
+        ConfigManager.deleteScheduleTask(taskId);
+        return { success: true };
     }
-    if (!mainWindow) {
-      throw new AppError('主窗口未初始化', ErrorCode.SYSTEM_ERROR);
-    }
-    const qrcode = await startBot(config, mainWindow);
-    return { 
-      success: true,
-      message: qrcode ? '请扫码登录' : '机器人已启动'
-    };
-  },
-
-  [IPC_CHANNELS.STOP_BOT]: async () => {
-    if (!botInstance) {
-      return { success: true, message: '机器人已经停止' };
-    }
-    botInstance.isEnabled = false;
-    return { success: true, message: '机器人已暂停自动回复' };
-  },
-
-  // 定时任务相关处理器
-  [IPC_CHANNELS.GET_SCHEDULE_TASKS]: async () => {
-    return ConfigManager.getConfig().schedules || [];
-  },
-
-  [IPC_CHANNELS.ADD_SCHEDULE_TASK]: async (event: any, task: any) => {
-    ConfigManager.addScheduleTask(task);
-    return { success: true };
-  },
-
-  [IPC_CHANNELS.TOGGLE_SCHEDULE_TASK]: async (event: any, taskId: string, enabled: boolean) => {
-    ConfigManager.updateScheduleTask(taskId, enabled);
-    return { success: true };
-  },
-
-  [IPC_CHANNELS.DELETE_SCHEDULE_TASK]: async (event: any, taskId: string) => {
-    ConfigManager.deleteScheduleTask(taskId);
-    return { success: true };
-  }
 };
 
 // 3. 统一的错误处理包装器
 function wrapHandler(handler: (...args: any[]) => Promise<any>) {
-  return async (...args: any[]) => {
-    try {
-      return await handler(...args);
-    } catch (error) {
-      logger.error('IPC', '处理器执行失败', error);
-      return {
-        success: false,
-        error: error instanceof AppError ? error.message : '操作失败，请稍后重试'
-      };
-    }
-  };
+    return async (...args: any[]) => {
+        try {
+            return await handler(...args);
+        } catch (error) {
+            logger.error('IPC', '处理器执行失败', error);
+            return {
+                success: false,
+                error: error instanceof AppError ? error.message : '操作失败，请稍后重试'
+            };
+        }
+    };
 }
 
 // 4. 统一注册所有处理器
 function registerIpcHandlers() {
-  // 在注册前先移除所有已存在的处理器
-  for (const channel of Object.values(IPC_CHANNELS)) {
-    ipcMain.removeHandler(channel);
-  }
-  
-  // 注册新的处理器
-  Object.entries(ipcHandlers).forEach(([channel, handler]) => {
-    ipcMain.handle(channel, wrapHandler(handler));
-  });
+    // 在注册前先移除所有已存在的处理器
+    for (const channel of Object.values(IPC_CHANNELS)) {
+        ipcMain.removeHandler(channel);
+    }
+    
+    // 注册新的处理器
+    Object.entries(ipcHandlers).forEach(([channel, handler]) => {
+        ipcMain.handle(channel, wrapHandler(handler));
+    });
 }
 
 // 5. 在应用启动时注册
 app.whenReady().then(async () => {
-  try {
-    // 注册所有 IPC 处理器
-    registerIpcHandlers();
-    
-    // 创建窗口
-    createWindow();
-    
-    // 设置自动更新
-    setupAutoUpdater();
-  } catch (error) {
-    logger.error('App', '应用启动失败', error);
-    app.quit();
-  }
+    try {
+        // 注册所有 IPC 处理器
+        registerIpcHandlers();
+        
+        // 创建窗口
+        createWindow();
+        
+        // 设置自动更新
+        setupAutoUpdater();
+    } catch (error) {
+        logger.error('App', '应用启动失败', error);
+        app.quit();
+    }
 });
+
+// 添加状态监控
+function startStatusMonitor() {
+    if (!botInstance) {
+        logger.error('Bot', '无法启动状态监控：机器人实例不存在');
+        return;
+    }
+
+    setInterval(async () => {
+        try {
+            if (botInstance) {
+                const isLoggedIn = await botInstance.logonoff();
+                if (!isLoggedIn) {
+                    logger.warn('Bot', '检测到登录状态异常，尝试重连');
+                    await reconnectBot();
+                }
+            }
+        } catch (error) {
+            logger.error('Bot', '状态监控失败', error);
+        }
+    }, 60000); // 每分钟检查一次
+}

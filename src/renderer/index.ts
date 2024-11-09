@@ -41,35 +41,39 @@ class App {
 
   private initComponents() {
     try {
-      // 初始化各个组件
-      const scheduleContainer = document.getElementById('scheduleItems');
-      if (scheduleContainer) {
-        this.scheduleManager = new ScheduleManager(scheduleContainer);
-        // 暴露给全局使用
-        window.scheduleManager = this.scheduleManager;
-      }
-
-      this.botStatus = new BotStatus();
-      
-      const qrcodeContainer = document.getElementById('qrcode');
-      if (qrcodeContainer) {
+        // 首先初始化 QRCodeManager
+        const qrcodeContainer = document.getElementById('qrcode');
+        if (!qrcodeContainer) {
+            throw new Error('QRCode container not found');
+        }
         this.qrcodeManager = new QRCodeManager(qrcodeContainer);
-      }
+        console.log('QRCodeManager initialized');
 
-      this.configManager = new ConfigManager();
-      this.logViewer = new LogViewer('logViewer');
+        // 然后初始化其他组件
+        const scheduleContainer = document.getElementById('scheduleItems');
+        if (scheduleContainer) {
+            this.scheduleManager = new ScheduleManager(scheduleContainer);
+            window.scheduleManager = this.scheduleManager;
+        }
 
-      // 绑定事件
-      this.bindEvents();
-      // 初始化标签切换
-      this.initTabSwitching();
+        this.botStatus = new BotStatus();
+        this.configManager = new ConfigManager();
+        this.logViewer = new LogViewer('logViewer');
 
-      // 立即检查初始配置
-      this.checkInitialConfig();
+        // 绑定事件监听器
+        this.initBotEventListeners();
+        // 初始化标签切换
+        this.initTabSwitching();
+        // 绑定按钮事件
+        this.bindEvents();
+        // 立即检查初始配置
+        this.checkInitialConfig();
+
+        console.log('All components initialized');
 
     } catch (error) {
-      this.logger.error('App', '初始化组件失败', error);
-      notification.show('应用初始化失败，请刷新页面重试', 'error');
+        this.logger.error('App', '初始化组件失败', error);
+        notification.show('应用初始化失败，请刷新页面重试', 'error');
     }
   }
 
@@ -98,20 +102,26 @@ class App {
     // 启动机器人按钮事件
     const startBotButton = document.getElementById('startBot');
     if (startBotButton) {
-      startBotButton.addEventListener('click', () => this.handleStartBot());
+        console.log('Binding start button event');
+        startBotButton.addEventListener('click', () => {
+            console.log('Start button clicked');
+            this.handleStartBot();
+        });
+    } else {
+        console.error('Start button not found');
     }
 
     // 添加停止按钮事件
     const stopBotButton = document.getElementById('stopBot');
     if (stopBotButton) {
-      stopBotButton.addEventListener('click', () => this.handleStopBot());
+        console.log('Binding stop button event');
+        stopBotButton.addEventListener('click', () => {
+            console.log('Stop button clicked');
+            this.handleStopBot();
+        });
+    } else {
+        console.error('Stop button not found');
     }
-
-    // 监听机器人事件
-    this.initBotEventListeners();
-
-    // 监听配置变更
-    this.initConfigListeners();
   }
 
   private initConfigListeners() {

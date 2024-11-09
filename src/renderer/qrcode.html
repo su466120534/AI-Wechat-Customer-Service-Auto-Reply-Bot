@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>扫码登录</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: white;
+            font-family: system-ui;
+        }
+        .qrcode-container {
+            text-align: center;
+            padding: 20px;
+        }
+        .qrcode-image {
+            max-width: 200px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+        }
+        .status {
+            color: #666;
+            text-align: center;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="qrcode-container">
+        <img id="qrcode" class="qrcode-image">
+        <div class="status">请使用微信扫描二维码登录</div>
+    </div>
+    <script>
+        const { ipcRenderer } = require('electron');
+        ipcRenderer.on('qrcode', (event, qrcode) => {
+            document.getElementById('qrcode').src = qrcode;
+        });
+    </script>
+</body>
+</html> 

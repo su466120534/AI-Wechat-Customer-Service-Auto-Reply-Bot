@@ -8531,14 +8531,29 @@
       var QRCodeManager = class {
         constructor(container) {
           this.container = container;
+          this.qrcodeImage = document.createElement("img");
+          this.qrcodeImage.className = "qrcode-image";
+          this.statusText = document.createElement("div");
+          this.statusText.className = "status";
+          this.statusText.textContent = "\u8BF7\u4F7F\u7528\u5FAE\u4FE1\u626B\u63CF\u4E8C\u7EF4\u7801\u767B\u5F55";
+          this.container.appendChild(this.qrcodeImage);
+          this.container.appendChild(this.statusText);
+          window.electronAPI.onQrcodeGenerated((qrcode) => {
+            this.show(qrcode);
+          });
         }
-        show(message) {
-          this.container.textContent = message;
+        show(qrcodeData) {
+          this.qrcodeImage.src = qrcodeData;
           this.container.classList.add("show");
+          console.log("QR code displayed");
         }
         hide() {
           this.container.classList.remove("show");
-          this.container.textContent = "";
+          this.qrcodeImage.src = "";
+          console.log("QR code hidden");
+        }
+        updateStatus(status) {
+          this.statusText.textContent = status;
         }
       };
       exports.QRCodeManager = QRCodeManager;
@@ -8587,7 +8602,8 @@
           }
           return container;
         }
-        addMessage(message, type = "info", autoRemove = true) {
+        addMessage(message, type = "info", autoRemove = false) {
+          const keepMessage = message.includes("\u673A\u5668\u4EBA\u5DF2\u542F\u52A8") || message.includes("\u5FAE\u4FE1\u767B\u5F55\u6210\u529F") || message.includes("API Key \u5DF2\u914D\u7F6E") || message.includes("\u767D\u540D\u5355\u5DF2\u914D\u7F6E") || message.includes("\u673A\u5668\u4EBA\u6B63\u5728\u8FD0\u884C");
           const messageElement = document.createElement("div");
           messageElement.className = `key-message ${type}`;
           const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
@@ -8608,7 +8624,7 @@
               this.messageList.removeChild(lastChild);
             }
           }
-          if (autoRemove) {
+          if (autoRemove && !keepMessage) {
             const timeout = setTimeout(() => {
               messageElement.classList.add("fade-out");
               setTimeout(() => {
@@ -9133,21 +9149,25 @@
         }
         initComponents() {
           try {
+            const qrcodeContainer = document.getElementById("qrcode");
+            if (!qrcodeContainer) {
+              throw new Error("QRCode container not found");
+            }
+            this.qrcodeManager = new qrcode_1.QRCodeManager(qrcodeContainer);
+            console.log("QRCodeManager initialized");
             const scheduleContainer = document.getElementById("scheduleItems");
             if (scheduleContainer) {
               this.scheduleManager = new schedule_1.ScheduleManager(scheduleContainer);
               window.scheduleManager = this.scheduleManager;
             }
             this.botStatus = new bot_status_1.BotStatus();
-            const qrcodeContainer = document.getElementById("qrcode");
-            if (qrcodeContainer) {
-              this.qrcodeManager = new qrcode_1.QRCodeManager(qrcodeContainer);
-            }
             this.configManager = new config_manager_1.ConfigManager();
             this.logViewer = new log_viewer_1.LogViewer("logViewer");
-            this.bindEvents();
+            this.initBotEventListeners();
             this.initTabSwitching();
+            this.bindEvents();
             this.checkInitialConfig();
+            console.log("All components initialized");
           } catch (error) {
             this.logger.error("App", "\u521D\u59CB\u5316\u7EC4\u4EF6\u5931\u8D25", error);
             notification_1.notification.show("\u5E94\u7528\u521D\u59CB\u5316\u5931\u8D25\uFF0C\u8BF7\u5237\u65B0\u9875\u9762\u91CD\u8BD5", "error");
@@ -9172,14 +9192,24 @@
         bindEvents() {
           const startBotButton = document.getElementById("startBot");
           if (startBotButton) {
-            startBotButton.addEventListener("click", () => this.handleStartBot());
+            console.log("Binding start button event");
+            startBotButton.addEventListener("click", () => {
+              console.log("Start button clicked");
+              this.handleStartBot();
+            });
+          } else {
+            console.error("Start button not found");
           }
           const stopBotButton = document.getElementById("stopBot");
           if (stopBotButton) {
-            stopBotButton.addEventListener("click", () => this.handleStopBot());
+            console.log("Binding stop button event");
+            stopBotButton.addEventListener("click", () => {
+              console.log("Stop button clicked");
+              this.handleStopBot();
+            });
+          } else {
+            console.error("Stop button not found");
           }
-          this.initBotEventListeners();
-          this.initConfigListeners();
         }
         initConfigListeners() {
           const apiKeyInput = document.getElementById("aitiwoKey");
