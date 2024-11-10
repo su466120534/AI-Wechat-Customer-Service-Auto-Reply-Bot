@@ -73,7 +73,7 @@
             <div class="form-group">
                 <label>群聊白名单:</label>
                 <textarea id="roomWhitelist" placeholder="每行输入一个群名"></textarea>
-                <div class="form-help">仅在白名单中的群聊响应消息</div>
+                <div class="form-help">仅在白名单中的���聊响应消息</div>
             </div>
             <div class="whitelist-controls">
                 <button id="saveWhitelist" class="btn-primary">保存配置</button>
@@ -84,19 +84,11 @@
             <div class="schedule-form">
                 <h3>添加定时任务</h3>
                 <div class="form-group">
-                    <label>群名称:</label>
-                    <div class="room-tags-container">
-                        <div class="room-header">
-                            <div class="room-tags" id="roomTags"></div>
-                            <button id="clearRoomsBtn" class="btn-warning" title="清空所有已选群聊">
-                                <span class="clear-icon">🗑️</span>
-                            </button>
-                        </div>
-                        <div class="room-input-group">
-                            <select id="roomInput" class="room-select">
-                                <option value="">选择群聊...</option>
-                            </select>
-                        </div>
+                    <label>群聊名称:</label>
+                    <textarea id="scheduleRooms" placeholder="请输入群聊名称，每行一个&#10;提示：可以从白名单配置中复制群聊名称"></textarea>
+                    <div class="form-help">
+                        <span class="help-icon">ℹ️</span>
+                        <span class="help-text">只能选择已在白名单中的群聊</span>
                     </div>
                 </div>
                 <div class="form-group">

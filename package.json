@@ -1,7 +1,7 @@
 {
-  "name": "wechat-bot-client",
+  "name": "aitiwo-wechat-bot",
   "version": "1.0.0",
-  "description": "微信AI助手客户端",
+  "description": "企业AI知识库微信客服",
   "main": "dist/main/index.js",
   "type": "commonjs",
   "scripts": {
@@ -52,8 +52,8 @@
     "typescript": "^5.3.3"
   },
   "build": {
-    "appId": "com.wechat.bot.client",
-    "productName": "WeChat Bot Client",
+    "appId": "com.aitiwo.wechat.bot",
+    "productName": "企业AI知识库微信客服",
     "files": [
       "dist/**/*",
       "package.json"
@@ -96,7 +96,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/wechat-bot-client.git"
+    "url": "https://github.com/yourusername/aitiwo-wechat-bot.git"
   },
   "author": "Your Name",
   "license": "MIT",

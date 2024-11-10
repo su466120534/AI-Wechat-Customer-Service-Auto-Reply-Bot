@@ -139,6 +139,18 @@ class ScheduleManager {
                 this.updateTaskStatus(task, 'success');
             }
 
+            // 通知渲染进程刷新任务列表
+            if (this.mainWindow) {
+                this.mainWindow.webContents.send('task-status-update', {
+                    taskId: task.id,
+                    status: hasError ? 'failed' : 'success',
+                    message: hasError ? errorMessage : '任务执行完成'
+                });
+                
+                // 添加这行，确保渲染进程重新加载任务列表
+                this.mainWindow.webContents.send('refresh-tasks');
+            }
+
         } catch (error) {
             const err = error instanceof Error ? error : new Error('未知错误');
             this.updateTaskStatus(task, 'failed', err);
@@ -146,34 +158,32 @@ class ScheduleManager {
         }
     }
 
-    // 添加任务状态更新方法
+    // 修改任务状态更新方法
     private updateTaskStatus(task: ScheduleTask, status: 'success' | 'failed', error?: Error) {
-        task.completed = true;
-        task.completedAt = new Date().toISOString();
         task.lastRun = new Date().toISOString();
         task.lastStatus = status;
+        task.status = status === 'success' ? 'completed' : 'failed';
+        
         if (error) {
             task.error = error.message;
         }
 
-        // 更新配置
+        // 添加执行历史记录
+        if (!task.executionHistory) {
+            task.executionHistory = [];
+        }
+        task.executionHistory.push({
+            timestamp: new Date().toISOString(),
+            status,
+            error: error?.message
+        });
+
+        // 更新配置并保存
         const config = ConfigManager.getConfig();
         const taskIndex = config.schedules.findIndex(t => t.id === task.id);
         if (taskIndex !== -1) {
             config.schedules[taskIndex] = task;
             ConfigManager.saveConfig();
-
-            // 通知渲染进程
-            if (this.mainWindow) {
-                this.mainWindow.webContents.send('task-status-update', {
-                    taskId: task.id,
-                    status,
-                    message: error ? error.message : '任务执行完成'
-                });
-
-                // 通知刷新任务列表
-                this.mainWindow.webContents.send('refresh-tasks');
-            }
         }
 
         // 从活动任务中移除
@@ -286,16 +296,10 @@ class ScheduleManager {
 
             // 设置定时器
             const timer = setTimeout(async () => {
-                logger.info('Schedule', `定时器触发，开始执行任务`, {
-                    taskId: task.id,
-                    executionTime: new Date().toLocaleString()
-                });
                 await this.executeTask(task);
                 
                 // 任务执行完成后清理
                 this.tasks.delete(task.id);
-                task.completed = true;
-                task.completedAt = new Date().toISOString();
                 
                 // 更新配置
                 const config = ConfigManager.getConfig();
@@ -333,14 +337,17 @@ class ScheduleManager {
                     cron: task.cron,
                     enabled: task.enabled,
                     isOneTime: task.isOneTime,
-                    createdAt: task.createdAt
+                    createdAt: task.createdAt,
+                    repeatType: task.repeatType || 'once',
+                    status: task.status || 'pending',
+                    executionHistory: task.executionHistory || []
                 })
             }
         })
     }
 
     addTask(task: ScheduleTask) {
-        const config = ConfigManager.getConfig()
+        const config = ConfigManager.getConfig();
         const configTask: ScheduleTask = {
             id: task.id,
             roomNames: task.roomNames,
@@ -348,15 +355,18 @@ class ScheduleManager {
             cron: task.cron,
             enabled: task.enabled,
             isOneTime: task.isOneTime,
-            createdAt: task.createdAt
-        }
+            createdAt: task.createdAt,
+            repeatType: task.repeatType || 'once',
+            status: task.status || 'pending',
+            executionHistory: task.executionHistory || []
+        };
         
-        const schedules = config.schedules as ScheduleTask[]
-        schedules.push(configTask)
-        ConfigManager.saveConfig()
+        const schedules = config.schedules as ScheduleTask[];
+        schedules.push(configTask);
+        ConfigManager.saveConfig();
 
         if (task.enabled) {
-            this.scheduleTask(task)
+            this.scheduleTask(configTask);
         }
     }
 
@@ -366,25 +376,21 @@ class ScheduleManager {
         const index = schedules.findIndex(t => t.id === task.id);
         if (index !== -1) {
             const configTask: ScheduleTask = {
-                id: task.id,
-                roomNames: task.roomNames,
-                message: task.message,
-                cron: task.cron,
-                enabled: task.enabled,
-                isOneTime: task.isOneTime,
-                createdAt: task.createdAt
+                ...task,
+                status: task.status || 'pending',
+                executionHistory: task.executionHistory || []
             };
             schedules[index] = configTask;
             ConfigManager.saveConfig();
 
             const existingTimer = this.tasks.get(task.id);
             if (existingTimer) {
-                clearTimeout(existingTimer);  // 使用 clearTimeout 替代 cancel
+                clearTimeout(existingTimer);
                 this.tasks.delete(task.id);
             }
 
             if (task.enabled) {
-                this.scheduleTask(task);
+                this.scheduleTask(configTask);
             }
         }
     }

@@ -1,37 +1,46 @@
-export type LogLevel = 'debug' | 'info' | 'warn' | 'warning' | 'error' | 'success';
+export type LogLevel = 'info' | 'warn' | 'error' | 'debug' | 'success' | 'warning';
 
 export interface LoggerConfig {
-  level: LogLevel;
-  enableConsole?: boolean;
-  maxLogItems?: number;
-  logToFile?: boolean;
-}
-
-export interface LogItem {
-  level: LogLevel;
-  category: string;
-  message: string;
-  timestamp: string;
-  details?: any;
+    level: LogLevel;
+    prefix?: string;
+    timestamp?: boolean;
+    enableConsole?: boolean;
+    maxLogItems?: number;
+    logToFile?: boolean;
 }
 
 export interface Logger {
-  debug(category: string, message: string, details?: any): void;
-  info(category: string, message: string, details?: any): void;
-  warn(category: string, message: string, details?: any): void;
-  warning(category: string, message: string, details?: any): void;
-  error(category: string, message: string, details?: any): void;
-  success(category: string, message: string, details?: any): void;
-  
-  setLevel(level: LogLevel): void;
-  getLevel(): LogLevel;
-  
-  getLogs(filter?: {
-    level?: LogLevel;
-    category?: string;
-    startTime?: string;
-    endTime?: string;
-  }): LogItem[];
-  
-  clearLogs(): void;
-} 
+    info(message: string, ...args: any[]): void;
+    warn(message: string, ...args: any[]): void;
+    error(message: string, ...args: any[]): void;
+    debug(message: string, ...args: any[]): void;
+    success(message: string, ...args: any[]): void;
+    warning(message: string, ...args: any[]): void;
+}
+
+export interface LogItem {
+    timestamp: string;
+    level: LogLevel;
+    category: string;
+    message: string;
+    details?: any;
+}
+
+export type ConsoleMethodMap = Record<LogLevel, keyof Console>;
+
+export const defaultConsoleMethodMap: ConsoleMethodMap = {
+    info: 'info',
+    warn: 'warn',
+    error: 'error',
+    debug: 'debug',
+    success: 'info',
+    warning: 'warn'
+};
+
+export const DEFAULT_LOGGER_CONFIG: LoggerConfig = {
+    level: 'info',
+    timestamp: true,
+    enableConsole: true,
+    maxLogItems: 1000,
+    logToFile: true
+}; 

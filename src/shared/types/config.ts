@@ -20,12 +20,17 @@ export interface ScheduleTask {
   enabled: boolean;
   isOneTime: boolean;
   createdAt: string;
-  completedAt?: string;
-  completed?: boolean;
+  repeatType: 'daily' | 'weekly' | 'monthly' | 'once';
+  status: 'pending' | 'completed' | 'failed';
   lastRun?: string;
   lastStatus?: 'success' | 'failed';
-  histories?: TaskHistory[];
   error?: string;
+  archived?: boolean;
+  executionHistory: {
+    timestamp: string;
+    status: 'success' | 'failed';
+    error?: string;
+  }[];
 }
 
 export interface TaskHistory {

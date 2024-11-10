@@ -12,12 +12,9 @@ interface TaskTemplate {
 
 export class ScheduleManager {
   private container: HTMLElement;
-  private roomSelect: HTMLSelectElement;
-  private scheduleMessageInput!: HTMLTextAreaElement;
-  private addScheduleButton!: HTMLButtonElement;
-  private roomTagsContainer: HTMLElement;
-  private selectedRooms: Set<string> = new Set();
-  // 添加 cron 相关的输入元素
+  private scheduleMessageInput: HTMLTextAreaElement;
+  private scheduleRoomsInput: HTMLTextAreaElement;
+  private addScheduleButton: HTMLButtonElement;
   private scheduleDate!: HTMLInputElement;
   private scheduleTime!: HTMLInputElement;
   private repeatType!: HTMLSelectElement;
@@ -43,54 +40,51 @@ export class ScheduleManager {
     this.container = container;
     
     // 获取所有必需的元素
-    const roomSelectElement = document.getElementById('roomInput');
-    if (!roomSelectElement) {
-      throw new Error('Room select element not found');
-    }
-    this.roomSelect = roomSelectElement as HTMLSelectElement;
-
-    const roomTags = document.getElementById('roomTags');
-    if (!roomTags) {
-      throw new Error('Room tags container not found');
-    }
-    this.roomTagsContainer = roomTags;
-
-    // 获取消息输入框和添加按钮
     this.scheduleMessageInput = document.getElementById('scheduleMessage') as HTMLTextAreaElement;
+    this.scheduleRoomsInput = document.getElementById('scheduleRooms') as HTMLTextAreaElement;
     this.addScheduleButton = document.getElementById('addSchedule') as HTMLButtonElement;
-    
-    // 获取时间相关的输入元素
     this.scheduleDate = document.getElementById('scheduleDate') as HTMLInputElement;
     this.scheduleTime = document.getElementById('scheduleTime') as HTMLInputElement;
     this.repeatType = document.getElementById('repeatType') as HTMLSelectElement;
 
-    if (!this.scheduleMessageInput || !this.addScheduleButton || 
+    if (!this.scheduleMessageInput || !this.scheduleRoomsInput || !this.addScheduleButton ||
         !this.scheduleDate || !this.scheduleTime || !this.repeatType) {
-      throw new Error('Required schedule elements not found');
+        throw new Error('Required schedule elements not found');
     }
 
-    // 化顺序很重要
-    this.initRoomInput();  // 1. 先初始化输入相关事件
-    this.loadRoomOptions();  // 2. 加载群聊选项到下拉框
-    this.loadWhitelistRooms();  // 3. 加载默认选中的群聊
-    this.bindScheduleEvents();  // 4. 绑定其他事件
-    this.loadTasks();  // 5. 加载现有任务
-
-    // 监听任务状态更新
-    window.electronAPI.on('task-status-update', async () => {
-        await this.loadTasks();  // 刷新任务列表
+    // 添加调试日志
+    console.log('初始化 ScheduleManager', {
+        messageInput: !!this.scheduleMessageInput,
+        roomsInput: !!this.scheduleRoomsInput,
+        addButton: !!this.addScheduleButton
     });
 
-    // 监听刷新任务列表事件
+    // 直接绑定点击事件
+    this.addScheduleButton.onclick = async () => {
+        console.log('添加任务按钮被点击');
+        await this.handleAddTask();
+    };
+
+    // 绑定其他事件
+    this.bindRepeatTypeEvents();
+
+    // 添加任务状态更新监听
+    window.electronAPI.on('task-status-update', async () => {
+        console.log('收到任务状态更新通知，重新加载任务列表');
+        await this.loadTasks();
+    });
+
+    // 添加刷新任务列表监听
     window.electronAPI.on('refresh-tasks', async () => {
-        await this.loadTasks();  // 刷新任务列表
+        console.log('收到刷新任务列表通知');
+        await this.loadTasks();
     });
   }
 
-  private bindScheduleEvents() {
-    // 绑定添加任务按钮事件
+  private bindEvents() {
+    // 定添加任务按钮事件
     this.addScheduleButton.addEventListener('click', async () => {
-      console.log('Add schedule button clicked'); // 添加调试日志
+      console.log('Add schedule button clicked');
       await this.handleAddTask();
     });
     
@@ -102,9 +96,9 @@ export class ScheduleManager {
     
     // 将测试按钮添加到表单中
     this.addScheduleButton.parentElement?.insertBefore(testButton, this.addScheduleButton.nextSibling);
-    
-    // 绑定重复类型事件
-    this.bindRepeatTypeEvents();
+
+    // 绑定群聊输入框验证事件
+    this.scheduleRoomsInput.addEventListener('change', () => this.validateRooms());
   }
 
   async loadTasks() {
@@ -137,61 +131,51 @@ export class ScheduleManager {
             return acc;
         }, []);
 
-        // 修改任务分类逻辑，更严格的状态判断
-        const pendingTasks = uniqueTasks.filter(t => 
-            !t.completed && 
-            t.enabled && 
-            !t.lastStatus  // 还未执行过
-        );
-
+        // 按状态分类任务
         const completedTasks = uniqueTasks.filter(t => 
-            t.completed && 
-            t.lastStatus === 'success'  // 已完成且成功
+            t.status === 'completed' ||  // 已标记为完成的任务
+            (t.isOneTime && t.lastStatus === 'success') ||  // 一次性任务且执行成功
+            (t.isOneTime && t.archived)  // 已归档的一次性任务
         );
 
         const failedTasks = uniqueTasks.filter(t => 
-            t.lastStatus === 'failed' ||  // 执行失败
-            (t.completed && t.lastStatus !== 'success')  // 已完成但不是成功状态
+            t.status === 'failed' &&  // 已标记为失败的任务
+            !t.archived  // 未归档的失败任务
         );
 
-        const disabledTasks = uniqueTasks.filter(t => !t.enabled);
+        const pendingTasks = uniqueTasks.filter(t => 
+            t.status === 'pending' &&  // 待执行的任务
+            t.enabled &&  // 已启用
+            !t.archived &&  // 未归档
+            (!t.isOneTime || !t.lastRun)  // 不是一次性任务或未执行过
+        );
 
-        this.container.innerHTML = `
-            <div class="sort-controls">
-                <select onchange="window.scheduleManager.sortTasks(this.value)">
-                    <option value="next">按执行时间排序</option>
-                    <option value="added">按添加时间排序</option>
-                </select>
-            </div>
-            
-            <div class="tasks-section">
-                <h3>待执行任务 (${pendingTasks.length})</h3>
-                <div class="tasks-list pending-tasks">
-                    ${pendingTasks.map(task => this.renderTaskItem(task)).join('')}
+        // 只更新任务列表部分，不影响表单
+        const scheduleItems = document.getElementById('scheduleItems');
+        if (scheduleItems) {
+            scheduleItems.innerHTML = `
+                <div class="tasks-section">
+                    <h3>待执行任务 (${pendingTasks.length})</h3>
+                    <div class="tasks-list pending-tasks">
+                        ${pendingTasks.map(task => this.renderTaskItem(task)).join('')}
+                    </div>
                 </div>
-            </div>
 
-            <div class="tasks-section">
-                <h3>已完成任务 (${completedTasks.length})</h3>
-                <div class="tasks-list completed-tasks">
-                    ${completedTasks.map(task => this.renderTaskItem(task)).join('')}
+                <div class="tasks-section">
+                    <h3>已完成任务 (${completedTasks.length})</h3>
+                    <div class="tasks-list completed-tasks">
+                        ${completedTasks.map(task => this.renderTaskItem(task)).join('')}
+                    </div>
                 </div>
-            </div>
 
-            <div class="tasks-section">
-                <h3>执行失败任务 (${failedTasks.length})</h3>
-                <div class="tasks-list failed-tasks">
-                    ${failedTasks.map(task => this.renderTaskItem(task, true)).join('')}
+                <div class="tasks-section">
+                    <h3>执行失败任务 (${failedTasks.length})</h3>
+                    <div class="tasks-list failed-tasks">
+                        ${failedTasks.map(task => this.renderTaskItem(task, true)).join('')}
+                    </div>
                 </div>
-            </div>
-
-            <div class="tasks-section">
-                <h3>已禁用任务 (${disabledTasks.length})</h3>
-                <div class="tasks-list disabled-tasks">
-                    ${disabledTasks.map(task => this.renderTaskItem(task)).join('')}
-                </div>
-            </div>
-        `;
+            `;
+        }
     } catch (error) {
         console.error('Failed to render tasks:', error);
     }
@@ -202,12 +186,22 @@ export class ScheduleManager {
     const nextRunTime = this.getNextRunTime(task.cron);
     const status = this.getTaskStatus(task, nextRunTime);
     
+    // 添加重复类型显示
+    const repeatTypeText = {
+        'once': '单次',
+        'daily': '每日',
+        'weekly': '每周',
+        'monthly': '每月'
+    }[task.repeatType || 'once'];
+    
     return `
         <div class="schedule-item ${status.className}" data-id="${task.id}">
             <div class="task-header">
-                <div class="task-title">发送至: ${roomNames.join(', ')}</div>
+                <div class="task-title">
+                    发送至: ${roomNames.join(', ')}
+                    <span class="repeat-type-badge">${repeatTypeText}</span>
+                </div>
                 <div class="task-controls">
-                    <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">编辑</button>
                     <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">删除</button>
                 </div>
             </div>
@@ -217,7 +211,7 @@ export class ScheduleManager {
                     <div class="task-schedule">执行时间: ${this.cronToReadableText(task.cron)}</div>
                     <div class="task-next-run">
                         <span class="status-badge ${status.className}">${status.text}</span>
-                        ${nextRunTime && !task.completed ? `<span class="countdown">距离下次执行: ${this.getTimeRemaining(nextRunTime)}</span>` : ''}
+                        ${nextRunTime && task.status === 'pending' ? `<span class="countdown">距离下次执行: ${this.getTimeRemaining(nextRunTime)}</span>` : ''}
                     </div>
                     ${task.lastRun ? `
                         <div class="task-last-run">
@@ -290,50 +284,60 @@ export class ScheduleManager {
 
   private async handleAddTask() {
     try {
-      if (this.selectedRooms.size === 0) {
-        throw new Error('请选择至少一个群聊');
+      console.log('开始处理添加任务');
+      
+      // 验证群聊
+      const validRooms = await this.validateRooms();
+      if (validRooms.length === 0) {
+        throw new Error('请输入有效的群聊名称');
       }
 
-      const message = this.scheduleMessageInput?.value.trim() || '';
-      const cronExpression = this.generateCronExpression();
-      const repeatType = (document.getElementById('repeatType') as HTMLSelectElement).value;
-
-      // 输入验证
+      const message = this.scheduleMessageInput.value.trim();
       if (!message) {
         throw new Error('请输入消息内容');
       }
 
-      if (!cronExpression) {
-        throw new Error('请设置执行时间');
-      }
+      const cronExpression = this.generateCronExpression();
+      const repeatType = this.repeatType.value;
+
+      console.log('创建任务', {
+        rooms: validRooms,
+        message,
+        cron: cronExpression,
+        repeatType
+      });
 
       // 创建任务
       const task: ScheduleTask = {
         id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-        roomNames: Array.from(this.selectedRooms),
+        roomNames: validRooms,
         message,
         cron: cronExpression,
         enabled: true,
-        isOneTime: repeatType === 'once',  // 添加是否一次性任务的标记
-        createdAt: new Date().toISOString()
+        isOneTime: repeatType === 'once',
+        createdAt: new Date().toISOString(),
+        repeatType: repeatType as 'daily' | 'weekly' | 'monthly' | 'once',
+        status: 'pending',
+        executionHistory: []
       };
 
       const result = await window.electronAPI.addScheduleTask(task);
       if (!result.success) {
-        throw new Error(`添加任务失败: ${result.error}`);
+        throw new Error(result.error || '添加任务失败');
       }
 
       notification.show('定时任务添加成功', 'success', 2000);
       this.clearForm();
       await this.loadTasks();
     } catch (error) {
-      console.error('Failed to add task:', error);
+      console.error('添加任务失败:', error);
       notification.show(error instanceof Error ? error.message : '添加失败', 'error', 5000);
     }
   }
 
   private clearForm() {
     if (this.scheduleMessageInput) this.scheduleMessageInput.value = '';
+    if (this.scheduleRoomsInput) this.scheduleRoomsInput.value = '';
     if (this.scheduleDate) this.scheduleDate.value = '';
     if (this.scheduleTime) this.scheduleTime.value = '';
     if (this.repeatType) this.repeatType.value = 'once';
@@ -375,51 +379,6 @@ export class ScheduleManager {
     } catch (error) {
       notification.show(error instanceof Error ? error.message : '删除失败', 'error', 5000);  // 错误类消息显示5秒
     }
-  }
-
-  private async initRoomTags() {
-    try {
-      const config = await window.electronAPI.getConfig();
-      config.roomWhitelist.forEach((room: string) => {
-        this.selectedRooms.add(room);
-        this.addRoomTag(room);
-      });
-    } catch (error) {
-      console.error('Failed to load room list:', error);
-    }
-  }
-
-  private addRoomTag(roomName: string) {
-    const tag = document.createElement('div');
-    tag.className = 'room-tag';
-    tag.innerHTML = `
-      <span class="room-name">${roomName}</span>
-      <span class="remove-tag" onclick="event.stopPropagation(); window.scheduleManager.removeRoom('${roomName}')">×</span>
-    `;
-    this.roomTagsContainer.appendChild(tag);
-  }
-
-  removeRoom(roomName: string) {
-    this.selectedRooms.delete(roomName);
-    const tags = this.roomTagsContainer.querySelectorAll('.room-tag');
-    tags.forEach(tag => {
-      if (tag.querySelector('.room-name')?.textContent === roomName) {
-        tag.remove();
-      }
-    });
-  }
-
-  private bindRoomInputEvents() {
-    this.roomSelect.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && this.roomSelect.value.trim()) {
-        const roomName = this.roomSelect.value.trim();
-        if (!this.selectedRooms.has(roomName)) {
-          this.selectedRooms.add(roomName);
-          this.addRoomTag(roomName);
-        }
-        this.roomSelect.value = '';
-      }
-    });
   }
 
   async editTask(taskId: string) {
@@ -528,48 +487,62 @@ export class ScheduleManager {
     }
   }
 
-  private updateTaskStatus(taskId: string, status: 'success' | 'failed', message?: string) {
-    const taskElement = this.container.querySelector(`[data-id="${taskId}"]`);
-    if (!taskElement) return;
+  private async updateTaskStatus(taskId: string, status: 'success' | 'failed', error?: string) {
+    try {
+        const tasks = await window.electronAPI.getScheduleTasks();
+        const task = tasks.find(t => t.id === taskId);
+        if (!task) return;
 
-    const statusBadge = taskElement.querySelector('.status-badge');
-    if (statusBadge) {
-      statusBadge.className = `status-badge ${status}`;
-      statusBadge.textContent = status === 'success' ? '执行成功' : '执行失败';
-    }
+        // 更新任务状态
+        task.lastRun = new Date().toISOString();
+        task.lastStatus = status;
+        task.error = error;
 
-    if (message) {
-      const errorInfo = document.createElement('div');
-      errorInfo.className = 'task-error-info';
-      errorInfo.textContent = message;
-      taskElement.appendChild(errorInfo);
+        // 添加执行历史
+        if (!task.executionHistory) {
+            task.executionHistory = [];
+        }
+        task.executionHistory.push({
+            timestamp: new Date().toISOString(),
+            status,
+            error
+        });
 
-      // 5秒后自动隐藏错误信息
-      setTimeout(() => {
-        errorInfo.remove();
-      }, 5000);
+        // 处理一次性任务的完成状态
+        if (task.isOneTime) {
+            task.status = status === 'success' ? 'completed' : 'failed';
+            task.archived = status === 'success';  // 成功的一次性任务自动归档
+        }
+
+        // 保存更新后的任务
+        await window.electronAPI.updateScheduleTask(task);
+        
+        // 刷显示
+        await this.loadTasks();
+    } catch (error) {
+        console.error('Failed to update task status:', error);
     }
   }
 
   private renderTaskHistory(task: ScheduleTask): string {
-    const histories = task.histories || [];
+    const histories = task.executionHistory || [];
     if (histories.length === 0) {
-      return '';
+        return '';
     }
 
     return `
-      <div class="task-history">
-        <h4>执行历史</h4>
-        <div class="history-list">
-          ${histories.map((history: TaskHistory) => `
-            <div class="history-item ${history.status}">
-              <span class="history-time">${new Date(history.executionTime).toLocaleString()}</span>
-              <span class="history-status">${history.status === 'success' ? '成功' : '失败'}</span>
-              ${history.error ? `<span class="history-error">${history.error}</span>` : ''}
+        <div class="task-history">
+            <h4>执行历史</h4>
+            <div class="history-list">
+                ${histories.map(history => `
+                    <div class="history-item ${history.status}">
+                        <span class="history-time">${new Date(history.timestamp).toLocaleString()}</span>
+                        <span class="history-status">${history.status === 'success' ? '成功' : '失败'}</span>
+                        ${history.error ? `<span class="history-error">${history.error}</span>` : ''}
+                    </div>
+                `).join('')}
             </div>
-          `).join('')}
         </div>
-      </div>
     `;
   }
 
@@ -864,146 +837,6 @@ export class ScheduleManager {
     });
   }
 
-  private async loadWhitelistRooms() {
-    try {
-      const config = await window.electronAPI.getConfig();
-      // 默认添加所有白名单群
-      config.roomWhitelist.forEach(room => {
-        this.addRoom(room);
-      });
-      console.log('Loaded whitelist rooms:', config.roomWhitelist);
-    } catch (error) {
-      console.error('Failed to load whitelist rooms:', error);
-    }
-  }
-
-  private async initRoomInput() {
-    const clearRoomsBtn = document.getElementById('clearRoomsBtn');
-    
-    // 监听下拉框变化事件
-    this.roomSelect.addEventListener('change', async () => {
-        console.log('Room select changed:', this.roomSelect.value);
-        const selectedRoom = this.roomSelect.value;
-        if (selectedRoom) {
-            await this.handleAddRoom(selectedRoom);
-        }
-    });
-
-    // 监听清空按钮点击事件
-    if (clearRoomsBtn) {
-        console.log('Clear button found, binding click event');
-        clearRoomsBtn.addEventListener('click', () => {
-            console.log('Clear button clicked');
-            this.clearAllRooms();
-        });
-    } else {
-        console.error('Clear rooms button not found');
-    }
-  }
-
-  private clearAllRooms() {
-    console.log('Clearing all rooms'); // 添加调试日志
-    // 清空已选群聊
-    this.selectedRooms.clear();
-    // 清空标签容器
-    if (this.roomTagsContainer) {
-        this.roomTagsContainer.innerHTML = '';
-    }
-    // 重新加载选项
-    this.loadRoomOptions();
-    notification.show('已清空所有已选群聊', 'warning', 2000);
-  }
-
-  private async handleAddRoom(roomName: string) {
-    try {
-        console.log('Handling add room:', roomName); // 添加调试日志
-        
-        // 检查是否已添加
-        if (this.selectedRooms.has(roomName)) {
-            notification.show('该群已添加，无需重复添加', 'warning', 2000);
-            // 清空选择
-            this.roomSelect.value = '';
-            return;
-        }
-
-        // 获取白名单配置
-        const config = await window.electronAPI.getConfig();
-        const isInWhitelist = config.roomWhitelist.includes(roomName);
-
-        if (!isInWhitelist) {
-            notification.show('请先将该群添加到白名单配置中', 'error', 5000);
-            // 清空选择
-            this.roomSelect.value = '';
-            return;
-        }
-
-        // 添加群标签
-        this.addRoom(roomName);
-        // 清空选择
-        this.roomSelect.value = '';
-        notification.show('群添加成功', 'success', 2000);
-    } catch (error) {
-        console.error('Failed to add room:', error);
-        notification.show('添加群失败', 'error', 5000);
-    }
-  }
-
-  private addRoom(roomName: string) {
-    if (this.selectedRooms.has(roomName)) return;
-
-    this.selectedRooms.add(roomName);
-    
-    const tag = document.createElement('div');
-    tag.className = 'room-tag';
-    tag.innerHTML = `
-      <span class="room-name">${roomName}</span>
-      <span class="remove-tag">×</span>
-    `;
-
-    // 添加删除事件
-    const removeBtn = tag.querySelector('.remove-tag');
-    if (removeBtn) {
-      removeBtn.addEventListener('click', () => {
-        this.selectedRooms.delete(roomName);
-        tag.remove();
-        // 重新加载选项，确保被删除的群可以重新选择
-        this.loadRoomOptions();
-      });
-    }
-
-    this.roomTagsContainer.appendChild(tag);
-  }
-
-  private async loadRoomOptions() {
-    try {
-        const config = await window.electronAPI.getConfig();
-        console.log('Loading room options from config:', config.roomWhitelist); // 添加���试日志
-        
-        // 清空现有选项（保留默认选项）
-        while (this.roomSelect.options.length > 1) {
-            this.roomSelect.remove(1);
-        }
-        
-        // 添加白名单群作为选项（排除已选择的群）
-        config.roomWhitelist
-            .filter(room => !this.selectedRooms.has(room))
-            .forEach(room => {
-                const option = document.createElement('option');
-                option.value = room;
-                option.textContent = room;
-                this.roomSelect.appendChild(option);
-                console.log('Added room option:', room); // 添加调试日志
-            });
-
-        console.log('Room options loaded:', {
-            totalOptions: this.roomSelect.options.length,
-            selectedRooms: Array.from(this.selectedRooms)
-        });
-    } catch (error) {
-        console.error('Failed to load room options:', error);
-    }
-  }
-
   // 获取任务下次执行时间
   private getNextRunTime(cron: string): string | null {
     try {
@@ -1017,9 +850,25 @@ export class ScheduleManager {
 
   // 获取任务状态
   private getTaskStatus(task: ScheduleTask, nextRunTime: string | null): { className: string; text: string } {
-    // 如果任务已完成，直接返回完成状态
-    if (task.completed) {
-        return { className: 'completed', text: '已完成' };
+    // 如果任务已经执行过
+    if (task.lastRun) {
+        // 如果执行成功
+        if (task.lastStatus === 'success') {
+            return { className: 'completed', text: '已完成' };
+        }
+        // 如果执行失败
+        if (task.lastStatus === 'failed') {
+            return { className: 'failed', text: '执行失败' };
+        }
+    }
+
+    // 如果是一次性任务，检查是否过期
+    if (task.isOneTime && nextRunTime) {
+        const now = new Date().getTime();
+        const next = new Date(nextRunTime).getTime();
+        if (next < now) {
+            return { className: 'expired', text: '已过期' };
+        }
     }
 
     if (!task.enabled) {
@@ -1028,17 +877,6 @@ export class ScheduleManager {
     
     if (!nextRunTime) {
         return { className: 'error', text: '时间设置错误' };
-    }
-
-    const now = new Date().getTime();
-    const next = new Date(nextRunTime).getTime();
-    
-    if (task.lastStatus === 'failed') {
-        return { className: 'failed', text: '上次执行失败' };
-    }
-    
-    if (next < now) {
-        return { className: 'expired', text: '已过期' };
     }
 
     return { className: 'pending', text: '等待执行' };
@@ -1070,52 +908,21 @@ export class ScheduleManager {
   // 修改测试方法，添加更多日志
   async testSendMessage() {
     try {
-        console.log('开始测试发送消息...');
-
-        if (this.selectedRooms.size === 0) {
-            console.log('错误: 未选择任何群聊');
-            notification.show('请选择至少一个群聊', 'error');
+        const validRooms = await this.validateRooms();
+        if (validRooms.length === 0) {
+            notification.show('请输入有效的群聊名称', 'error');
             return;
         }
-        console.log('已选择的群聊:', Array.from(this.selectedRooms));
 
-        const message = this.scheduleMessageInput?.value.trim() || '';
+        const message = this.scheduleMessageInput.value.trim();
         if (!message) {
-            console.log('错误: 消息内容为空');
             notification.show('请输入消息内容', 'error');
             return;
         }
-        console.log('待发送的消息:', message);
 
-        // 创建一个一分钟后执行的任务
-        const now = new Date();
-        const executeTime = new Date(now.getTime() + 60000); // 一分钟后
-        
-        console.log('当前时间:', now.toLocaleString());
-        console.log('计划执行时间:', executeTime.toLocaleString());
-
-        const task: ScheduleTask = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            roomNames: Array.from(this.selectedRooms),
-            message,
-            // 修改 cron 表达式生成方式
-            cron: `${executeTime.getMinutes()} ${executeTime.getHours()} * * *`,
-            enabled: true,
-            isOneTime: true,
-            createdAt: new Date().toISOString()
-        };
-
-        console.log('创建的任务:', {
-            id: task.id,
-            roomNames: task.roomNames,
-            cron: task.cron,
-            message: task.message,
-            executionTime: executeTime.toLocaleString()
-        });
-
-        // 接调用测试发送
+        // 调用测试发送
         const result = await window.electronAPI.testDirectSend(
-            Array.from(this.selectedRooms)[0],  // 取第一个群进行测试
+            validRooms[0],  // 使用第一个有效群聊
             message
         );
 
@@ -1124,17 +931,60 @@ export class ScheduleManager {
         } else {
             throw new Error(result.error || '发送失败');
         }
-
     } catch (error) {
         console.error('测试发送消息失败:', error);
         notification.show(error instanceof Error ? error.message : '测试失败', 'error', 5000);
     }
   }
+
+  private async validateRooms(): Promise<string[]> {
+    const inputRooms = this.scheduleRoomsInput.value
+        .split('\n')
+        .map(room => room.trim())
+        .filter(room => room.length > 0);
+
+    try {
+        const config = await window.electronAPI.getConfig();
+        const invalidRooms = inputRooms.filter(room => !config.roomWhitelist.includes(room));
+        
+        // 显示无效群聊提示
+        const existingError = this.scheduleRoomsInput.nextElementSibling;
+        if (existingError?.classList.contains('invalid-room')) {
+            existingError.remove();
+        }
+
+        if (invalidRooms.length > 0) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'invalid-room';
+            errorDiv.textContent = `以下群聊不在白名单中：${invalidRooms.join(', ')}`;
+            this.scheduleRoomsInput.parentElement?.appendChild(errorDiv);
+            return [];
+        }
+
+        return inputRooms;
+    } catch (error) {
+        console.error('验证群聊失败:', error);
+        return [];
+    }
+  }
+
+  // 添加辅助方法判断任务是否过期
+  private isTaskExpired(task: ScheduleTask): boolean {
+    if (!task.isOneTime) return false;
+    const nextRunTime = this.getNextRunTime(task.cron);
+    if (!nextRunTime) return false;
+    
+    // 如果已经执行过，就认为已过期
+    if (task.lastRun) return true;
+    
+    // 否则检查时间是否过期
+    return new Date(nextRunTime).getTime() < new Date().getTime();
+  }
 }
 
-// 为了支持全局访问
+// 确保在全局作用域中注册实例
 declare global {
-  interface Window {
-    scheduleManager: ScheduleManager;
-  }
+    interface Window {
+        scheduleManager: ScheduleManager;
+    }
 } 

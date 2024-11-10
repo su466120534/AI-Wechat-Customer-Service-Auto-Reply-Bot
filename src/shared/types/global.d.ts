@@ -50,6 +50,13 @@ declare global {
         error?: string;
       }>;
       exportLogs: (content: string) => Promise<{ success: boolean; error?: string }>;
+      on(channel: 'whitelist-updated', callback: () => void): void;
+      updateScheduleTask: (task: ScheduleTask) => Promise<{ 
+        success: boolean; 
+        error?: string 
+      }>;
+      on(channel: 'task-status-update', callback: () => void): void;
+      on(channel: 'refresh-tasks', callback: () => void): void;
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;

@@ -130,19 +130,19 @@ class Logger extends EventEmitter {
   }
 
   info(category: string, message: string, details?: any) {
-    this.log('info', category, message, details);
+    this.log('info' as LogLevel, category, message, details);
   }
 
   warn(category: string, message: string, details?: any) {
-    this.log('warn', category, message, details);
+    this.log('warn' as LogLevel, category, message, details);
   }
 
   error(category: string, message: string, details?: any) {
-    this.log('error', category, message, details);
+    this.log('error' as LogLevel, category, message, details);
   }
 
   debug(category: string, message: string, details?: any) {
-    this.log('debug', category, message, details);
+    this.log('debug' as LogLevel, category, message, details);
   }
 
   async getLogs(limit: number = 100): Promise<LogItem[]> {
@@ -195,15 +195,30 @@ class Logger extends EventEmitter {
     }, 60 * 1000); // 每分钟检查一次
   }
 
-  private log(level: LogLevel, category: string, message: string, details?: any) {
+  // 添加序列化检查
+  private sanitizeLogData(data: any): any {
+    try {
+        // 测试是否可以序列化
+        JSON.stringify(data);
+        return data;
+    } catch (error) {
+        // 如果无法序列化，返回简化版本
+        return {
+            error: '无法序列化的数据',
+            type: typeof data
+        };
+    }
+  }
+
+  log(level: LogLevel, category: string, message: string, details?: any) {
     const logItem: LogItem = {
+      timestamp: new Date().toISOString(),
       level,
       category,
       message,
-      timestamp: new Date().toISOString(),
-      details
+      details: details ? this.sanitizeLogData(details) : undefined
     };
-
+    
     // 只通过一种方式发送日志
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send('new-log', logItem);

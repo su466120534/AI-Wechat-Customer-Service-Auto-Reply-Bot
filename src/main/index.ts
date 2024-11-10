@@ -27,13 +27,14 @@ interface ExtendedContact extends Contact {
     say(text: string): Promise<void | Message>;
 }
 
-// 修改 ExtendedWechaty 接口定义
+// 改 ExtendedWechaty 接口定义
 interface ExtendedWechaty extends Wechaty {
   isEnabled: boolean;
   puppet: {
     isLoggedIn: boolean;
   } & Puppet;
   userSelf: () => Promise<Contact>;
+  currentUser: () => Promise<Contact>;
   stop(): Promise<void>;
   on(event: 'scan', listener: (qrcode: string, status: number) => void): this;
   on(event: 'login', listener: (user: Contact) => void): this;
@@ -67,6 +68,7 @@ let botProcess: Wechaty | null = null
 let connectionCheckInterval: NodeJS.Timeout | null = null
 let reconnectTimer: NodeJS.Timeout | null = null
 let retryCount = 0
+let consecutiveFailures = 0;
 
 // 添加二维码相关的变量声明
 let qrcodePromise: Promise<string>;
@@ -114,7 +116,7 @@ async function checkNetworkAndReconnect(): Promise<void> {
   }
 }
 
-// 定义错误恢复策略
+// 定义错误复策略
 const defaultRecoveryStrategy: ErrorRecoveryStrategy = {
   maxRetries: 3,
   retryDelay: 5000,
@@ -163,11 +165,26 @@ async function handleErrorWithRecovery(
       if (retryError instanceof Error) {
         await handleErrorWithRecovery(retryError, strategy, attempt + 1);
       } else {
-        throw new AppError('未错��', ErrorCode.SYSTEM_RESOURCE_ERROR);
+        throw new AppError('未错', ErrorCode.SYSTEM_RESOURCE_ERROR);
       }
     }
   } else {
     strategy.onMaxRetriesExceeded(error as AppError);
+  }
+
+  if (error.message.includes('memory-card')) {
+    logger.warn('Bot', '检测到 memory-card 错误，尝试清理并重新启动');
+    const memoryCardPath = path.join(app.getPath('userData'), 'WechatEveryDay.memory-card.json');
+    if (fs.existsSync(memoryCardPath)) {
+      fs.unlinkSync(memoryCardPath);
+    }
+    
+    // 重新启动机器人
+    const config = ConfigManager.getConfig();
+    if (!mainWindow) {
+      throw new Error('主窗口未初始化');
+    }
+    await startBot(config, mainWindow);
   }
 }
 
@@ -307,6 +324,20 @@ function createWindow(): void {
 // 修改 startBot 函数
 async function startBot(config: Config, mainWindow: BrowserWindow): Promise<string> {
     try {
+        // 检查并清理损坏的 memory-card 文件
+        const memoryCardPath = path.join(app.getPath('userData'), 'WechatEveryDay.memory-card.json');
+        if (fs.existsSync(memoryCardPath)) {
+            try {
+                // 尝试读取文件验证 JSON 格式
+                const content = fs.readFileSync(memoryCardPath, 'utf-8');
+                JSON.parse(content);
+            } catch (error) {
+                // JSON 解析失败，说明文件损坏，删除它
+                logger.warn('Bot', 'Memory card 文件损坏，正在删除');
+                fs.unlinkSync(memoryCardPath);
+            }
+        }
+
         logger.info('Bot', '开始创建机器人实例...');
         
         // API Key 检查
@@ -338,28 +369,21 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         // 设置事件监听
         botInstance
             .on('scan', async (qrcode: string, status: any) => {
-                logger.info('Bot', '收到扫码��件');
+                logger.info('Bot', '收到扫码事件');
                 try {
-                    // 生成维码图片
                     const qrcodeDataUrl = await QRCode.toDataURL(qrcode);
                     logger.info('Bot', '二维码图片生成成功');
-
-                    // 创建二维码窗口
                     createQRCodeWindow(qrcodeDataUrl);
                 } catch (error) {
-                    logger.error('Bot', '生成二码失败', error);
+                    logger.error('Bot', '生成二维码失败', error);
                 }
             })
             .on('login', async (user: any) => {
                 logger.info('Bot', '登录成功，开始处理登录事件', { userName: user.name() });
                 
-                // 添加这段代码来关闭二维码窗口
+                // 确保关闭二维码窗口
                 try {
-                    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-                        logger.info('Bot', '正在关闭二维码窗口');
-                        qrcodeWindow.close();
-                        qrcodeWindow = null;
-                    }
+                    closeQRCodeWindow();
                 } catch (error) {
                     logger.error('Bot', '关闭二维码窗口失败', error);
                 }
@@ -540,6 +564,9 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         // 启动机器人并开始状态监控
         await botInstance.start();
         logger.info('Bot', '机器人启动成功');
+        
+        // 启动稳定性措施
+        startHeartbeat();
         startStatusMonitor();
         
         return '';
@@ -621,7 +648,7 @@ function setupAutoUpdater(): void {
   })
 
   autoUpdater.on('update-downloaded', (info) => {
-    logger.info('Update', '更新下', info)
+    logger.info('Update', '更新', info)
     mainWindow.webContents.send('update-downloaded')
   })
 
@@ -670,11 +697,8 @@ process.on('unhandledRejection', (reason, promise) => {
 function createQRCodeWindow(qrcodeDataUrl: string) {
     logger.info('Bot', '开始创建二维码窗口');
     
-    // 如果已存在窗口先关闭
-    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-        logger.info('Bot', '关闭已存在的二维码窗口');
-        qrcodeWindow.close();
-    }
+    // 先关闭已存在的窗口
+    closeQRCodeWindow();
 
     qrcodeWindow = new BrowserWindow({
         width: 400,
@@ -685,8 +709,25 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
-            webSecurity: false  // 允许加载 data URL
+            webSecurity: false
         }
+    });
+
+    // 添加窗口事件监听
+    qrcodeWindow.on('closed', () => {
+        logger.info('Bot', '二维码窗口被关闭');
+        qrcodeWindow = null;
+    });
+
+    // 添加错误处理
+    qrcodeWindow.webContents.on('crashed', () => {
+        logger.error('Bot', '二维码窗口崩溃');
+        closeQRCodeWindow();
+    });
+
+    qrcodeWindow.webContents.on('did-fail-load', () => {
+        logger.error('Bot', '二维码窗口加载失败');
+        closeQRCodeWindow();
     });
 
     // 修改 HTML 内容
@@ -748,12 +789,9 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
 
     qrcodeWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     
-    // 窗口关闭时清理引用
-    qrcodeWindow.on('closed', () => {
-        logger.info('Bot', '二维码窗口被关闭');
-        qrcodeWindow = null;
-    });
-
+    // 设置超时自动关闭
+    setupQRCodeTimeout();
+    
     return qrcodeWindow;
 }
 
@@ -783,7 +821,7 @@ const RETRY_DELAY = 5000; // 5秒
 
 async function retryStartBot() {
     try {
-        logger.info('Recovery', '尝试重新连机器人');
+        logger.info('Recovery', '试重新连机器人');
         const config = ConfigManager.getConfig();
         
         if (!mainWindow) {
@@ -823,20 +861,21 @@ async function checkBotStatus(): Promise<boolean> {
         // 用 puppet 的登录状态
         const isLoggedIn = botInstance.puppet?.isLoggedIn;
         
-        // 如果已登录发送状态更新
+        // 如果已登录发送状更新
         if (isLoggedIn && mainWindow) {
+            const user = await botInstance.currentUser();
             mainWindow.webContents.send('bot-event', 'login', {
-                userName: (await botInstance.userSelf()).name(),
+                userName: user.name(),
                 status: 'running',
                 message: '机器人已启动并正在运行'
             });
         }
 
-        logger.info('Bot', '登录态检查结果:', { isLoggedIn });
-        return !!isLoggedIn;  // 确保返回布尔值
+        logger.info('Bot', '登录状态检查结果:', { isLoggedIn });
+        return !!isLoggedIn;
     } catch (error) {
         logger.error('Bot', '检查登录状态失败', error);
-        return false;  // 出错时返回 false
+        return false;
     }
 }
 
@@ -922,7 +961,7 @@ function sendBotEvent(event: string, data: any) {
     }
 }
 
-// 修改配置迁移函数
+// 修改配置迁函数
 async function migrateWhitelistConfig() {
     try {
         // 加载 .env 文件
@@ -1012,8 +1051,25 @@ async function callAIWithRetry(message: string, retryCount = 3) {
 
 // 添加关闭二维码窗口的函数
 function closeQRCodeWindow() {
-    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-        qrcodeWindow.close();
+    try {
+        if (qrcodeWindow) {
+            // 先检查窗口是否已经被销毁
+            if (!qrcodeWindow.isDestroyed()) {
+                // 先移除所有监听器，防止关闭事件触发其他操作
+                qrcodeWindow.removeAllListeners();
+                
+                // 如果窗口还在显示，则关闭它
+                if (qrcodeWindow.isVisible()) {
+                    qrcodeWindow.close();
+                }
+            }
+            // 无论如何都清空引用
+            qrcodeWindow = null;
+        }
+        logger.info('Bot', '二维码窗口已关闭');
+    } catch (error) {
+        logger.error('Bot', '关闭二维码窗口时出错', error);
+        // 确保清空引用
         qrcodeWindow = null;
     }
 }
@@ -1057,6 +1113,8 @@ const ipcHandlers = {
 
     [IPC_CHANNELS.SAVE_WHITELIST]: async (event: any, { contacts, rooms }: any) => {
         await ConfigManager.setWhitelists(contacts, rooms);
+        // 发送白名单更新通知
+        mainWindow?.webContents.send('whitelist-updated');
         return { success: true };
     },
 
@@ -1189,7 +1247,7 @@ function registerIpcHandlers() {
         ipcMain.removeHandler(channel);
     }
     
-    // 注册新的处理器
+    // 注新的处理器
     Object.entries(ipcHandlers).forEach(([channel, handler]) => {
         ipcMain.handle(channel, wrapHandler(handler));
     });
@@ -1211,34 +1269,6 @@ app.whenReady().then(async () => {
         app.quit();
     }
 });
-
-// 修改状态监控函数
-function startStatusMonitor() {
-    if (!botInstance) {
-        logger.error('Bot', '无法启动状态监控：机器人实例不存在');
-        return;
-    }
-
-    setInterval(async () => {
-        try {
-            if (botInstance) {
-                // 使用 isLoggedIn 属性替代 logonoff() 方法
-                const isLoggedIn = botInstance.puppet?.isLoggedIn;
-                
-                logger.info('Bot', '检查登录状态', {
-                    isLoggedIn: isLoggedIn
-                });
-
-                if (!isLoggedIn) {
-                    logger.warn('Bot', '检测到登录状态异常');
-                    // 暂时先不做重连,只记录状态
-                }
-            }
-        } catch (error) {
-            logger.error('Bot', '状态监控失败', error);
-        }
-    }, 60000); // 每分钟检查一次
-}
 
 // 在文件顶部添加日志转发设置
 logger.on('newLog', (logItem: LogItem) => {
@@ -1270,4 +1300,130 @@ function setupIPC() {
             return { success: false, error: String(error) };
         }
     });
+}
+
+// 在文件顶部添加配置
+const STABILITY_CONFIG = {
+    reconnectInterval: 300000,    // 重连间隔改为 5 分钟
+    maxRetries: 3,               // 最大重试次数保持 3 次
+    heartbeatInterval: 600000,   // 心跳间隔改为 10 分钟
+    checkStatusInterval: 900000, // 状态检查间隔改为 15 分钟
+    consecutiveFailuresLimit: 5  // 连续失败次数限制保持 5 次
+};
+
+// 改进心跳检测函数，减少不必要的操作
+function startHeartbeat() {
+    setInterval(async () => {
+        try {
+            if (botInstance?.puppet?.isLoggedIn) {
+                // 只检查登录状态，不执行额外操作
+                logger.debug('Bot', '心跳检测成功');
+            }
+        } catch (error) {
+            // 心跳失败不立即报警，只记录日志
+            logger.debug('Bot', '心跳检测失败', error);
+        }
+    }, STABILITY_CONFIG.heartbeatInterval);
+}
+
+// 改进状态监控函数，减少敏感度
+function startStatusMonitor() {
+    if (!botInstance) {
+        logger.error('Bot', '无法启动状态监控：机器人实例不存在');
+        return;
+    }
+
+    setInterval(async () => {
+        try {
+            if (!botInstance) {
+                logger.error('Bot', '机器人实例不存在');
+                return;
+            }
+
+            const isLoggedIn = botInstance.puppet?.isLoggedIn;
+            
+            // 只在明确是登出状态时才增加失败计数
+            if (isLoggedIn === false) {
+                consecutiveFailures++;
+                logger.warn('Bot', `状态检查失败 (${consecutiveFailures}/${STABILITY_CONFIG.consecutiveFailuresLimit})`);
+                
+                if (consecutiveFailures >= STABILITY_CONFIG.consecutiveFailuresLimit) {
+                    logger.error('Bot', '连续多次检测到异常，开始重连');
+                    await handleReconnect();
+                }
+            } else {
+                // 重置失败计数
+                if (consecutiveFailures > 0) {
+                    consecutiveFailures = 0;
+                    logger.info('Bot', '状态恢复正常');
+                }
+            }
+        } catch (error) {
+            // 错误不计入失败次数，只记录日志
+            logger.error('Bot', '状态监控出错', error);
+        }
+    }, STABILITY_CONFIG.checkStatusInterval);
+}
+
+// 改进重连处理函数，添加延迟
+async function handleReconnect() {
+    try {
+        logger.info('Bot', '准备开始重连流程');
+        
+        // 添加随机延迟，避免同时重连
+        const delay = Math.floor(Math.random() * 30000) + 15000; // 15-45秒随机延迟
+        logger.info('Bot', `等待 ${delay/1000} 秒后开始重连`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // 重置失败计数
+        consecutiveFailures = 0;
+        
+        // 如果在等待期间状态已恢复，则取消重连
+        if (botInstance?.puppet?.isLoggedIn) {
+            logger.info('Bot', '状态已恢复，取消重连');
+            return;
+        }
+        
+        // 如果存在旧实例，尝试优雅关闭
+        if (botInstance) {
+            try {
+                await botInstance.stop();
+            } catch (error) {
+                logger.warn('Bot', '关闭旧实例失败', error);
+            }
+            botInstance = null;
+        }
+
+        // 重新启动
+        const config = ConfigManager.getConfig();
+        if (!mainWindow) {
+            throw new Error('主窗口未初始化');
+        }
+        await startBot(config, mainWindow);
+        
+        logger.info('Bot', '重连成功');
+        
+        // 通知前端
+        mainWindow.webContents.send('key-message', {
+            type: 'success',
+            message: '机器人重连成功'
+        });
+    } catch (error) {
+        logger.error('Bot', '重连失败', error);
+        mainWindow?.webContents.send('key-message', {
+            type: 'error',
+            message: '重连失败，请手动重启机器人'
+        });
+    }
+}
+
+// 添加定时检查，确保二维码窗口不会一直开着
+function setupQRCodeTimeout() {
+    const QRCODE_TIMEOUT = 5 * 60 * 1000; // 5分钟超时
+    setTimeout(() => {
+        if (qrcodeWindow) {
+            logger.warn('Bot', '二维码窗口超时，自动关闭');
+            closeQRCodeWindow();
+        }
+    }, QRCODE_TIMEOUT);
 }

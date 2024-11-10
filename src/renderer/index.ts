@@ -375,3 +375,17 @@ class App {
 
 // 创建应用实例
 const app = new App();
+
+// 在文件加载完成后初始化
+document.addEventListener('DOMContentLoaded', () => {
+    // ... 其他初始化代码 ...
+
+    // 初始化定时任务管理器
+    const scheduleContainer = document.getElementById('schedule');
+    if (scheduleContainer) {
+        console.log('初始化定时任务管理器');
+        window.scheduleManager = new ScheduleManager(scheduleContainer);
+    } else {
+        console.error('找不到定时任务容器');
+    }
+});

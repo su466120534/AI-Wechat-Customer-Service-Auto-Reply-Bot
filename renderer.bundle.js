@@ -7741,7 +7741,6 @@
       var notification_1 = require_notification();
       var ScheduleManager = class {
         constructor(container) {
-          this.selectedRooms = /* @__PURE__ */ new Set();
           this.defaultTemplates = [
             {
               id: "daily-morning",
@@ -7761,37 +7760,35 @@
             }
           ];
           this.container = container;
-          const roomSelectElement = document.getElementById("roomInput");
-          if (!roomSelectElement) {
-            throw new Error("Room select element not found");
-          }
-          this.roomSelect = roomSelectElement;
-          const roomTags = document.getElementById("roomTags");
-          if (!roomTags) {
-            throw new Error("Room tags container not found");
-          }
-          this.roomTagsContainer = roomTags;
           this.scheduleMessageInput = document.getElementById("scheduleMessage");
+          this.scheduleRoomsInput = document.getElementById("scheduleRooms");
           this.addScheduleButton = document.getElementById("addSchedule");
           this.scheduleDate = document.getElementById("scheduleDate");
           this.scheduleTime = document.getElementById("scheduleTime");
           this.repeatType = document.getElementById("repeatType");
-          if (!this.scheduleMessageInput || !this.addScheduleButton || !this.scheduleDate || !this.scheduleTime || !this.repeatType) {
+          if (!this.scheduleMessageInput || !this.scheduleRoomsInput || !this.addScheduleButton || !this.scheduleDate || !this.scheduleTime || !this.repeatType) {
             throw new Error("Required schedule elements not found");
           }
-          this.initRoomInput();
-          this.loadRoomOptions();
-          this.loadWhitelistRooms();
-          this.bindScheduleEvents();
-          this.loadTasks();
+          console.log("\u521D\u59CB\u5316 ScheduleManager", {
+            messageInput: !!this.scheduleMessageInput,
+            roomsInput: !!this.scheduleRoomsInput,
+            addButton: !!this.addScheduleButton
+          });
+          this.addScheduleButton.onclick = async () => {
+            console.log("\u6DFB\u52A0\u4EFB\u52A1\u6309\u94AE\u88AB\u70B9\u51FB");
+            await this.handleAddTask();
+          };
+          this.bindRepeatTypeEvents();
           window.electronAPI.on("task-status-update", async () => {
+            console.log("\u6536\u5230\u4EFB\u52A1\u72B6\u6001\u66F4\u65B0\u901A\u77E5\uFF0C\u91CD\u65B0\u52A0\u8F7D\u4EFB\u52A1\u5217\u8868");
             await this.loadTasks();
           });
           window.electronAPI.on("refresh-tasks", async () => {
+            console.log("\u6536\u5230\u5237\u65B0\u4EFB\u52A1\u5217\u8868\u901A\u77E5");
             await this.loadTasks();
           });
         }
-        bindScheduleEvents() {
+        bindEvents() {
           this.addScheduleButton.addEventListener("click", async () => {
             console.log("Add schedule button clicked");
             await this.handleAddTask();
@@ -7801,7 +7798,7 @@
           testButton.textContent = "\u6D4B\u8BD5\u53D1\u9001(\u7ACB\u5373)";
           testButton.onclick = () => this.testSendMessage();
           this.addScheduleButton.parentElement?.insertBefore(testButton, this.addScheduleButton.nextSibling);
-          this.bindRepeatTypeEvents();
+          this.scheduleRoomsInput.addEventListener("change", () => this.validateRooms());
         }
         async loadTasks() {
           try {
@@ -7830,56 +7827,49 @@
               }
               return acc;
             }, []);
-            const pendingTasks = uniqueTasks.filter(
-              (t) => !t.completed && t.enabled && !t.lastStatus
-              // 还未执行过
-            );
             const completedTasks = uniqueTasks.filter(
-              (t) => t.completed && t.lastStatus === "success"
-              // 已完成且成功
+              (t) => t.status === "completed" || // 已标记为完成的任务
+              t.isOneTime && t.lastStatus === "success" || // 一次性任务且执行成功
+              t.isOneTime && t.archived
+              // 已归档的一次性任务
             );
             const failedTasks = uniqueTasks.filter(
-              (t) => t.lastStatus === "failed" || // 执行失败
-              t.completed && t.lastStatus !== "success"
-              // 已完成但不是成功状态
+              (t) => t.status === "failed" && // 已标记为失败的任务
+              !t.archived
+              // 未归档的失败任务
             );
-            const disabledTasks = uniqueTasks.filter((t) => !t.enabled);
-            this.container.innerHTML = `
-            <div class="sort-controls">
-                <select onchange="window.scheduleManager.sortTasks(this.value)">
-                    <option value="next">\u6309\u6267\u884C\u65F6\u95F4\u6392\u5E8F</option>
-                    <option value="added">\u6309\u6DFB\u52A0\u65F6\u95F4\u6392\u5E8F</option>
-                </select>
-            </div>
-            
-            <div class="tasks-section">
-                <h3>\u5F85\u6267\u884C\u4EFB\u52A1 (${pendingTasks.length})</h3>
-                <div class="tasks-list pending-tasks">
-                    ${pendingTasks.map((task) => this.renderTaskItem(task)).join("")}
+            const pendingTasks = uniqueTasks.filter(
+              (t) => t.status === "pending" && // 待执行的任务
+              t.enabled && // 已启用
+              !t.archived && // 未归档
+              (!t.isOneTime || !t.lastRun)
+              // 不是一次性任务或未执行过
+            );
+            const scheduleItems = document.getElementById("scheduleItems");
+            if (scheduleItems) {
+              scheduleItems.innerHTML = `
+                <div class="tasks-section">
+                    <h3>\u5F85\u6267\u884C\u4EFB\u52A1 (${pendingTasks.length})</h3>
+                    <div class="tasks-list pending-tasks">
+                        ${pendingTasks.map((task) => this.renderTaskItem(task)).join("")}
+                    </div>
                 </div>
-            </div>
 
-            <div class="tasks-section">
-                <h3>\u5DF2\u5B8C\u6210\u4EFB\u52A1 (${completedTasks.length})</h3>
-                <div class="tasks-list completed-tasks">
-                    ${completedTasks.map((task) => this.renderTaskItem(task)).join("")}
+                <div class="tasks-section">
+                    <h3>\u5DF2\u5B8C\u6210\u4EFB\u52A1 (${completedTasks.length})</h3>
+                    <div class="tasks-list completed-tasks">
+                        ${completedTasks.map((task) => this.renderTaskItem(task)).join("")}
+                    </div>
                 </div>
-            </div>
 
-            <div class="tasks-section">
-                <h3>\u6267\u884C\u5931\u8D25\u4EFB\u52A1 (${failedTasks.length})</h3>
-                <div class="tasks-list failed-tasks">
-                    ${failedTasks.map((task) => this.renderTaskItem(task, true)).join("")}
+                <div class="tasks-section">
+                    <h3>\u6267\u884C\u5931\u8D25\u4EFB\u52A1 (${failedTasks.length})</h3>
+                    <div class="tasks-list failed-tasks">
+                        ${failedTasks.map((task) => this.renderTaskItem(task, true)).join("")}
+                    </div>
                 </div>
-            </div>
-
-            <div class="tasks-section">
-                <h3>\u5DF2\u7981\u7528\u4EFB\u52A1 (${disabledTasks.length})</h3>
-                <div class="tasks-list disabled-tasks">
-                    ${disabledTasks.map((task) => this.renderTaskItem(task)).join("")}
-                </div>
-            </div>
-        `;
+            `;
+            }
           } catch (error) {
             console.error("Failed to render tasks:", error);
           }
@@ -7888,12 +7878,20 @@
           const roomNames = task.roomNames || [];
           const nextRunTime = this.getNextRunTime(task.cron);
           const status = this.getTaskStatus(task, nextRunTime);
+          const repeatTypeText = {
+            "once": "\u5355\u6B21",
+            "daily": "\u6BCF\u65E5",
+            "weekly": "\u6BCF\u5468",
+            "monthly": "\u6BCF\u6708"
+          }[task.repeatType || "once"];
           return `
         <div class="schedule-item ${status.className}" data-id="${task.id}">
             <div class="task-header">
-                <div class="task-title">\u53D1\u9001\u81F3: ${roomNames.join(", ")}</div>
+                <div class="task-title">
+                    \u53D1\u9001\u81F3: ${roomNames.join(", ")}
+                    <span class="repeat-type-badge">${repeatTypeText}</span>
+                </div>
                 <div class="task-controls">
-                    <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">\u7F16\u8F91</button>
                     <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">\u5220\u9664</button>
                 </div>
             </div>
@@ -7903,7 +7901,7 @@
                     <div class="task-schedule">\u6267\u884C\u65F6\u95F4: ${this.cronToReadableText(task.cron)}</div>
                     <div class="task-next-run">
                         <span class="status-badge ${status.className}">${status.text}</span>
-                        ${nextRunTime && !task.completed ? `<span class="countdown">\u8DDD\u79BB\u4E0B\u6B21\u6267\u884C: ${this.getTimeRemaining(nextRunTime)}</span>` : ""}
+                        ${nextRunTime && task.status === "pending" ? `<span class="countdown">\u8DDD\u79BB\u4E0B\u6B21\u6267\u884C: ${this.getTimeRemaining(nextRunTime)}</span>` : ""}
                     </div>
                     ${task.lastRun ? `
                         <div class="task-last-run">
@@ -7965,43 +7963,52 @@
         }
         async handleAddTask() {
           try {
-            if (this.selectedRooms.size === 0) {
-              throw new Error("\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u4E2A\u7FA4\u804A");
+            console.log("\u5F00\u59CB\u5904\u7406\u6DFB\u52A0\u4EFB\u52A1");
+            const validRooms = await this.validateRooms();
+            if (validRooms.length === 0) {
+              throw new Error("\u8BF7\u8F93\u5165\u6709\u6548\u7684\u7FA4\u804A\u540D\u79F0");
             }
-            const message = this.scheduleMessageInput?.value.trim() || "";
-            const cronExpression = this.generateCronExpression();
-            const repeatType = document.getElementById("repeatType").value;
+            const message = this.scheduleMessageInput.value.trim();
             if (!message) {
               throw new Error("\u8BF7\u8F93\u5165\u6D88\u606F\u5185\u5BB9");
             }
-            if (!cronExpression) {
-              throw new Error("\u8BF7\u8BBE\u7F6E\u6267\u884C\u65F6\u95F4");
-            }
+            const cronExpression = this.generateCronExpression();
+            const repeatType = this.repeatType.value;
+            console.log("\u521B\u5EFA\u4EFB\u52A1", {
+              rooms: validRooms,
+              message,
+              cron: cronExpression,
+              repeatType
+            });
             const task = {
               id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-              roomNames: Array.from(this.selectedRooms),
+              roomNames: validRooms,
               message,
               cron: cronExpression,
               enabled: true,
               isOneTime: repeatType === "once",
-              // 添加是否一次性任务的标记
-              createdAt: (/* @__PURE__ */ new Date()).toISOString()
+              createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+              repeatType,
+              status: "pending",
+              executionHistory: []
             };
             const result = await window.electronAPI.addScheduleTask(task);
             if (!result.success) {
-              throw new Error(`\u6DFB\u52A0\u4EFB\u52A1\u5931\u8D25: ${result.error}`);
+              throw new Error(result.error || "\u6DFB\u52A0\u4EFB\u52A1\u5931\u8D25");
             }
             notification_1.notification.show("\u5B9A\u65F6\u4EFB\u52A1\u6DFB\u52A0\u6210\u529F", "success", 2e3);
             this.clearForm();
             await this.loadTasks();
           } catch (error) {
-            console.error("Failed to add task:", error);
+            console.error("\u6DFB\u52A0\u4EFB\u52A1\u5931\u8D25:", error);
             notification_1.notification.show(error instanceof Error ? error.message : "\u6DFB\u52A0\u5931\u8D25", "error", 5e3);
           }
         }
         clearForm() {
           if (this.scheduleMessageInput)
             this.scheduleMessageInput.value = "";
+          if (this.scheduleRoomsInput)
+            this.scheduleRoomsInput.value = "";
           if (this.scheduleDate)
             this.scheduleDate.value = "";
           if (this.scheduleTime)
@@ -8042,47 +8049,6 @@
           } catch (error) {
             notification_1.notification.show(error instanceof Error ? error.message : "\u5220\u9664\u5931\u8D25", "error", 5e3);
           }
-        }
-        async initRoomTags() {
-          try {
-            const config = await window.electronAPI.getConfig();
-            config.roomWhitelist.forEach((room) => {
-              this.selectedRooms.add(room);
-              this.addRoomTag(room);
-            });
-          } catch (error) {
-            console.error("Failed to load room list:", error);
-          }
-        }
-        addRoomTag(roomName) {
-          const tag = document.createElement("div");
-          tag.className = "room-tag";
-          tag.innerHTML = `
-      <span class="room-name">${roomName}</span>
-      <span class="remove-tag" onclick="event.stopPropagation(); window.scheduleManager.removeRoom('${roomName}')">\xD7</span>
-    `;
-          this.roomTagsContainer.appendChild(tag);
-        }
-        removeRoom(roomName) {
-          this.selectedRooms.delete(roomName);
-          const tags = this.roomTagsContainer.querySelectorAll(".room-tag");
-          tags.forEach((tag) => {
-            if (tag.querySelector(".room-name")?.textContent === roomName) {
-              tag.remove();
-            }
-          });
-        }
-        bindRoomInputEvents() {
-          this.roomSelect.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" && this.roomSelect.value.trim()) {
-              const roomName = this.roomSelect.value.trim();
-              if (!this.selectedRooms.has(roomName)) {
-                this.selectedRooms.add(roomName);
-                this.addRoomTag(roomName);
-              }
-              this.roomSelect.value = "";
-            }
-          });
         }
         async editTask(taskId) {
           const task = await this.getTask(taskId);
@@ -8167,43 +8133,51 @@
               return "\u672A\u77E5\u9519\u8BEF";
           }
         }
-        updateTaskStatus(taskId, status, message) {
-          const taskElement = this.container.querySelector(`[data-id="${taskId}"]`);
-          if (!taskElement)
-            return;
-          const statusBadge = taskElement.querySelector(".status-badge");
-          if (statusBadge) {
-            statusBadge.className = `status-badge ${status}`;
-            statusBadge.textContent = status === "success" ? "\u6267\u884C\u6210\u529F" : "\u6267\u884C\u5931\u8D25";
-          }
-          if (message) {
-            const errorInfo = document.createElement("div");
-            errorInfo.className = "task-error-info";
-            errorInfo.textContent = message;
-            taskElement.appendChild(errorInfo);
-            setTimeout(() => {
-              errorInfo.remove();
-            }, 5e3);
+        async updateTaskStatus(taskId, status, error) {
+          try {
+            const tasks = await window.electronAPI.getScheduleTasks();
+            const task = tasks.find((t) => t.id === taskId);
+            if (!task)
+              return;
+            task.lastRun = (/* @__PURE__ */ new Date()).toISOString();
+            task.lastStatus = status;
+            task.error = error;
+            if (!task.executionHistory) {
+              task.executionHistory = [];
+            }
+            task.executionHistory.push({
+              timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+              status,
+              error
+            });
+            if (task.isOneTime) {
+              task.status = status === "success" ? "completed" : "failed";
+              task.archived = status === "success";
+            }
+            await window.electronAPI.updateScheduleTask(task);
+            await this.loadTasks();
+          } catch (error2) {
+            console.error("Failed to update task status:", error2);
           }
         }
         renderTaskHistory(task) {
-          const histories = task.histories || [];
+          const histories = task.executionHistory || [];
           if (histories.length === 0) {
             return "";
           }
           return `
-      <div class="task-history">
-        <h4>\u6267\u884C\u5386\u53F2</h4>
-        <div class="history-list">
-          ${histories.map((history) => `
-            <div class="history-item ${history.status}">
-              <span class="history-time">${new Date(history.executionTime).toLocaleString()}</span>
-              <span class="history-status">${history.status === "success" ? "\u6210\u529F" : "\u5931\u8D25"}</span>
-              ${history.error ? `<span class="history-error">${history.error}</span>` : ""}
+        <div class="task-history">
+            <h4>\u6267\u884C\u5386\u53F2</h4>
+            <div class="history-list">
+                ${histories.map((history) => `
+                    <div class="history-item ${history.status}">
+                        <span class="history-time">${new Date(history.timestamp).toLocaleString()}</span>
+                        <span class="history-status">${history.status === "success" ? "\u6210\u529F" : "\u5931\u8D25"}</span>
+                        ${history.error ? `<span class="history-error">${history.error}</span>` : ""}
+                    </div>
+                `).join("")}
             </div>
-          `).join("")}
         </div>
-      </div>
     `;
         }
         startCountdownTimer(taskElement, nextRunTime) {
@@ -8431,110 +8405,6 @@
             monthlyWeek.style.display = monthlyType.value === "week" ? "block" : "none";
           });
         }
-        async loadWhitelistRooms() {
-          try {
-            const config = await window.electronAPI.getConfig();
-            config.roomWhitelist.forEach((room) => {
-              this.addRoom(room);
-            });
-            console.log("Loaded whitelist rooms:", config.roomWhitelist);
-          } catch (error) {
-            console.error("Failed to load whitelist rooms:", error);
-          }
-        }
-        async initRoomInput() {
-          const clearRoomsBtn = document.getElementById("clearRoomsBtn");
-          this.roomSelect.addEventListener("change", async () => {
-            console.log("Room select changed:", this.roomSelect.value);
-            const selectedRoom = this.roomSelect.value;
-            if (selectedRoom) {
-              await this.handleAddRoom(selectedRoom);
-            }
-          });
-          if (clearRoomsBtn) {
-            console.log("Clear button found, binding click event");
-            clearRoomsBtn.addEventListener("click", () => {
-              console.log("Clear button clicked");
-              this.clearAllRooms();
-            });
-          } else {
-            console.error("Clear rooms button not found");
-          }
-        }
-        clearAllRooms() {
-          console.log("Clearing all rooms");
-          this.selectedRooms.clear();
-          if (this.roomTagsContainer) {
-            this.roomTagsContainer.innerHTML = "";
-          }
-          this.loadRoomOptions();
-          notification_1.notification.show("\u5DF2\u6E05\u7A7A\u6240\u6709\u5DF2\u9009\u7FA4\u804A", "warning", 2e3);
-        }
-        async handleAddRoom(roomName) {
-          try {
-            console.log("Handling add room:", roomName);
-            if (this.selectedRooms.has(roomName)) {
-              notification_1.notification.show("\u8BE5\u7FA4\u5DF2\u6DFB\u52A0\uFF0C\u65E0\u9700\u91CD\u590D\u6DFB\u52A0", "warning", 2e3);
-              this.roomSelect.value = "";
-              return;
-            }
-            const config = await window.electronAPI.getConfig();
-            const isInWhitelist = config.roomWhitelist.includes(roomName);
-            if (!isInWhitelist) {
-              notification_1.notification.show("\u8BF7\u5148\u5C06\u8BE5\u7FA4\u6DFB\u52A0\u5230\u767D\u540D\u5355\u914D\u7F6E\u4E2D", "error", 5e3);
-              this.roomSelect.value = "";
-              return;
-            }
-            this.addRoom(roomName);
-            this.roomSelect.value = "";
-            notification_1.notification.show("\u7FA4\u6DFB\u52A0\u6210\u529F", "success", 2e3);
-          } catch (error) {
-            console.error("Failed to add room:", error);
-            notification_1.notification.show("\u6DFB\u52A0\u7FA4\u5931\u8D25", "error", 5e3);
-          }
-        }
-        addRoom(roomName) {
-          if (this.selectedRooms.has(roomName))
-            return;
-          this.selectedRooms.add(roomName);
-          const tag = document.createElement("div");
-          tag.className = "room-tag";
-          tag.innerHTML = `
-      <span class="room-name">${roomName}</span>
-      <span class="remove-tag">\xD7</span>
-    `;
-          const removeBtn = tag.querySelector(".remove-tag");
-          if (removeBtn) {
-            removeBtn.addEventListener("click", () => {
-              this.selectedRooms.delete(roomName);
-              tag.remove();
-              this.loadRoomOptions();
-            });
-          }
-          this.roomTagsContainer.appendChild(tag);
-        }
-        async loadRoomOptions() {
-          try {
-            const config = await window.electronAPI.getConfig();
-            console.log("Loading room options from config:", config.roomWhitelist);
-            while (this.roomSelect.options.length > 1) {
-              this.roomSelect.remove(1);
-            }
-            config.roomWhitelist.filter((room) => !this.selectedRooms.has(room)).forEach((room) => {
-              const option = document.createElement("option");
-              option.value = room;
-              option.textContent = room;
-              this.roomSelect.appendChild(option);
-              console.log("Added room option:", room);
-            });
-            console.log("Room options loaded:", {
-              totalOptions: this.roomSelect.options.length,
-              selectedRooms: Array.from(this.selectedRooms)
-            });
-          } catch (error) {
-            console.error("Failed to load room options:", error);
-          }
-        }
         // 获取任务下次执行时间
         getNextRunTime(cron) {
           try {
@@ -8547,22 +8417,26 @@
         }
         // 获取任务状态
         getTaskStatus(task, nextRunTime) {
-          if (task.completed) {
-            return { className: "completed", text: "\u5DF2\u5B8C\u6210" };
+          if (task.lastRun) {
+            if (task.lastStatus === "success") {
+              return { className: "completed", text: "\u5DF2\u5B8C\u6210" };
+            }
+            if (task.lastStatus === "failed") {
+              return { className: "failed", text: "\u6267\u884C\u5931\u8D25" };
+            }
+          }
+          if (task.isOneTime && nextRunTime) {
+            const now = (/* @__PURE__ */ new Date()).getTime();
+            const next = new Date(nextRunTime).getTime();
+            if (next < now) {
+              return { className: "expired", text: "\u5DF2\u8FC7\u671F" };
+            }
           }
           if (!task.enabled) {
             return { className: "disabled", text: "\u5DF2\u7981\u7528" };
           }
           if (!nextRunTime) {
             return { className: "error", text: "\u65F6\u95F4\u8BBE\u7F6E\u9519\u8BEF" };
-          }
-          const now = (/* @__PURE__ */ new Date()).getTime();
-          const next = new Date(nextRunTime).getTime();
-          if (task.lastStatus === "failed") {
-            return { className: "failed", text: "\u4E0A\u6B21\u6267\u884C\u5931\u8D25" };
-          }
-          if (next < now) {
-            return { className: "expired", text: "\u5DF2\u8FC7\u671F" };
           }
           return { className: "pending", text: "\u7B49\u5F85\u6267\u884C" };
         }
@@ -8588,44 +8462,19 @@
         // 修改测试方法，添加更多日志
         async testSendMessage() {
           try {
-            console.log("\u5F00\u59CB\u6D4B\u8BD5\u53D1\u9001\u6D88\u606F...");
-            if (this.selectedRooms.size === 0) {
-              console.log("\u9519\u8BEF: \u672A\u9009\u62E9\u4EFB\u4F55\u7FA4\u804A");
-              notification_1.notification.show("\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u4E2A\u7FA4\u804A", "error");
+            const validRooms = await this.validateRooms();
+            if (validRooms.length === 0) {
+              notification_1.notification.show("\u8BF7\u8F93\u5165\u6709\u6548\u7684\u7FA4\u804A\u540D\u79F0", "error");
               return;
             }
-            console.log("\u5DF2\u9009\u62E9\u7684\u7FA4\u804A:", Array.from(this.selectedRooms));
-            const message = this.scheduleMessageInput?.value.trim() || "";
+            const message = this.scheduleMessageInput.value.trim();
             if (!message) {
-              console.log("\u9519\u8BEF: \u6D88\u606F\u5185\u5BB9\u4E3A\u7A7A");
               notification_1.notification.show("\u8BF7\u8F93\u5165\u6D88\u606F\u5185\u5BB9", "error");
               return;
             }
-            console.log("\u5F85\u53D1\u9001\u7684\u6D88\u606F:", message);
-            const now = /* @__PURE__ */ new Date();
-            const executeTime = new Date(now.getTime() + 6e4);
-            console.log("\u5F53\u524D\u65F6\u95F4:", now.toLocaleString());
-            console.log("\u8BA1\u5212\u6267\u884C\u65F6\u95F4:", executeTime.toLocaleString());
-            const task = {
-              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-              roomNames: Array.from(this.selectedRooms),
-              message,
-              // 修改 cron 表达式生成方式
-              cron: `${executeTime.getMinutes()} ${executeTime.getHours()} * * *`,
-              enabled: true,
-              isOneTime: true,
-              createdAt: (/* @__PURE__ */ new Date()).toISOString()
-            };
-            console.log("\u521B\u5EFA\u7684\u4EFB\u52A1:", {
-              id: task.id,
-              roomNames: task.roomNames,
-              cron: task.cron,
-              message: task.message,
-              executionTime: executeTime.toLocaleString()
-            });
             const result = await window.electronAPI.testDirectSend(
-              Array.from(this.selectedRooms)[0],
-              // 取第一个群进行测试
+              validRooms[0],
+              // 使用第一个有效群聊
               message
             );
             if (result.success) {
@@ -8637,6 +8486,39 @@
             console.error("\u6D4B\u8BD5\u53D1\u9001\u6D88\u606F\u5931\u8D25:", error);
             notification_1.notification.show(error instanceof Error ? error.message : "\u6D4B\u8BD5\u5931\u8D25", "error", 5e3);
           }
+        }
+        async validateRooms() {
+          const inputRooms = this.scheduleRoomsInput.value.split("\n").map((room) => room.trim()).filter((room) => room.length > 0);
+          try {
+            const config = await window.electronAPI.getConfig();
+            const invalidRooms = inputRooms.filter((room) => !config.roomWhitelist.includes(room));
+            const existingError = this.scheduleRoomsInput.nextElementSibling;
+            if (existingError?.classList.contains("invalid-room")) {
+              existingError.remove();
+            }
+            if (invalidRooms.length > 0) {
+              const errorDiv = document.createElement("div");
+              errorDiv.className = "invalid-room";
+              errorDiv.textContent = `\u4EE5\u4E0B\u7FA4\u804A\u4E0D\u5728\u767D\u540D\u5355\u4E2D\uFF1A${invalidRooms.join(", ")}`;
+              this.scheduleRoomsInput.parentElement?.appendChild(errorDiv);
+              return [];
+            }
+            return inputRooms;
+          } catch (error) {
+            console.error("\u9A8C\u8BC1\u7FA4\u804A\u5931\u8D25:", error);
+            return [];
+          }
+        }
+        // 添加辅助方法判断任务是否过期
+        isTaskExpired(task) {
+          if (!task.isOneTime)
+            return false;
+          const nextRunTime = this.getNextRunTime(task.cron);
+          if (!nextRunTime)
+            return false;
+          if (task.lastRun)
+            return true;
+          return new Date(nextRunTime).getTime() < (/* @__PURE__ */ new Date()).getTime();
         }
       };
       exports.ScheduleManager = ScheduleManager;
@@ -9567,6 +9449,15 @@
         }
       };
       var app = new App();
+      document.addEventListener("DOMContentLoaded", () => {
+        const scheduleContainer = document.getElementById("schedule");
+        if (scheduleContainer) {
+          console.log("\u521D\u59CB\u5316\u5B9A\u65F6\u4EFB\u52A1\u7BA1\u7406\u5668");
+          window.scheduleManager = new schedule_1.ScheduleManager(scheduleContainer);
+        } else {
+          console.error("\u627E\u4E0D\u5230\u5B9A\u65F6\u4EFB\u52A1\u5BB9\u5668");
+        }
+      });
     }
   });
   require_renderer();
