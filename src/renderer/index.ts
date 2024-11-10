@@ -10,7 +10,7 @@ import { BotStatus } from './modules/bot-status';
 import { QRCodeManager } from './modules/qrcode';
 import { ConfigManager } from './modules/config-manager';
 import { LogLevel } from '../shared/types/logger';
-import { LogViewer } from './components/log-viewer';
+import { LogViewer } from './modules/logger';
 import { rendererLogger } from './utils/renderer-logger';
 import { keyMessages } from './components/key-messages';
 

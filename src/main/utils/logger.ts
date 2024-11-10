@@ -4,6 +4,7 @@ import { app, BrowserWindow } from 'electron'
 import { LogLevel, LogItem } from '../../shared/types/logger'
 import { AppError, ErrorCode } from '../../shared/types/errors'
 import * as fs from 'fs'
+import { EventEmitter } from 'events'
 
 interface ErrorLogFormat {
   timestamp: string;
@@ -16,11 +17,13 @@ interface ErrorLogFormat {
   details?: any;
 }
 
-class Logger {
+class Logger extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private logger: log4js.Logger;
 
   constructor() {
+    super();
+
     // 配置 log4js
     log4js.configure({
       appenders: {
@@ -127,30 +130,19 @@ class Logger {
   }
 
   info(category: string, message: string, details?: any) {
-    const logItem = this.createLogItem('info', category, message, details)
-    this.logger.info(`[${category}] ${message}`)
-    this.sendToRenderer(logItem)
+    this.log('info', category, message, details);
   }
 
   warn(category: string, message: string, details?: any) {
-    const logItem = this.createLogItem('warn', category, message, details)
-    this.logger.warn(`[${category}] ${message}`)
-    this.sendToRenderer(logItem)
+    this.log('warn', category, message, details);
   }
 
   error(category: string, message: string, details?: any) {
-    const logItem = this.createLogItem('error', category, message, details)
-    this.logger.error(`[${category}] ${message}`)
-    if (details) {
-      this.logger.error(details)
-    }
-    this.sendToRenderer(logItem)
+    this.log('error', category, message, details);
   }
 
   debug(category: string, message: string, details?: any) {
-    const logItem = this.createLogItem('debug', category, message, details)
-    this.logger.debug(`[${category}] ${message}`)
-    this.sendToRenderer(logItem)
+    this.log('debug', category, message, details);
   }
 
   async getLogs(limit: number = 100): Promise<LogItem[]> {
@@ -201,6 +193,21 @@ class Logger {
         this.cleanOldLogs();
       }
     }, 60 * 1000); // 每分钟检查一次
+  }
+
+  private log(level: LogLevel, category: string, message: string, details?: any) {
+    const logItem: LogItem = {
+      level,
+      category,
+      message,
+      timestamp: new Date().toISOString(),
+      details
+    };
+
+    // 只通过一种方式发送日志
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('new-log', logItem);
+    }
   }
 }
 

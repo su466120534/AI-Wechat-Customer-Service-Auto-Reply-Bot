@@ -1,6 +1,6 @@
 process.env.WECHATY_PUPPET = 'wechaty-puppet-wechat4u'
 
-import { app, BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, dialog } from 'electron'
 import * as path from 'path'
 import axios from 'axios'
 import { Wechaty, Message, Contact, Room } from 'wechaty'
@@ -19,6 +19,8 @@ import { Puppet } from 'wechaty-puppet';
 import { AitiwoService } from './services/aitiwo';
 import { CronJob } from 'cron';
 import { Config } from '../shared/types/config';
+import { LogItem } from '../shared/types/logger';
+import * as fs from 'fs';
 
 // 添加 Contact 类型扩展
 interface ExtendedContact extends Contact {
@@ -161,7 +163,7 @@ async function handleErrorWithRecovery(
       if (retryError instanceof Error) {
         await handleErrorWithRecovery(retryError, strategy, attempt + 1);
       } else {
-        throw new AppError('未错误', ErrorCode.SYSTEM_RESOURCE_ERROR);
+        throw new AppError('未错��', ErrorCode.SYSTEM_RESOURCE_ERROR);
       }
     }
   } else {
@@ -287,7 +289,7 @@ function createWindow(): void {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        // 删任���现有的 CSP 头
+        // 删任现有的 CSP 头
         'Content-Security-Policy': [''],
         // 添加新的 CSP 头
         'content-security-policy': [
@@ -336,7 +338,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         // 设置事件监听
         botInstance
             .on('scan', async (qrcode: string, status: any) => {
-                logger.info('Bot', '收到扫码事件');
+                logger.info('Bot', '收到扫码��件');
                 try {
                     // 生成维码图片
                     const qrcodeDataUrl = await QRCode.toDataURL(qrcode);
@@ -606,7 +608,6 @@ function scheduleReconnect(): void {
   }, RECONNECT_INTERVAL)
 }
 
-
 function setupAutoUpdater(): void {
   autoUpdater.logger = updateLogger
 
@@ -667,8 +668,11 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 修改二维码窗口创建函数
 function createQRCodeWindow(qrcodeDataUrl: string) {
+    logger.info('Bot', '开始创建二维码窗口');
+    
     // 如果已存在窗口先关闭
     if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+        logger.info('Bot', '关闭已存在的二维码窗口');
         qrcodeWindow.close();
     }
 
@@ -746,6 +750,7 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
     
     // 窗口关闭时清理引用
     qrcodeWindow.on('closed', () => {
+        logger.info('Bot', '二维码窗口被关闭');
         qrcodeWindow = null;
     });
 
@@ -1022,6 +1027,7 @@ const IPC_CHANNELS = {
     SAVE_AITIWO_KEY: 'save-aitiwo-key',
     IMPORT_WHITELIST: 'import-whitelist',
     EXPORT_WHITELIST: 'export-whitelist',
+    EXPORT_LOGS: 'export-logs',
     
     // 机器人相关
     START_BOT: 'startBot',
@@ -1071,7 +1077,7 @@ const ipcHandlers = {
         const qrcode = await startBot(config, mainWindow);
         return { 
             success: true,
-            message: qrcode ? '请码登录' : '机器人已启动'
+            message: qrcode ? '请扫码登录' : '机器人已启动'
         };
     },
 
@@ -1130,6 +1136,32 @@ const ipcHandlers = {
             return {
                 success: false,
                 error: error instanceof Error ? error.message : '发送失败'
+            };
+        }
+    },
+
+    // 添加导出日志处理器
+    [IPC_CHANNELS.EXPORT_LOGS]: async (event: any, content: string) => {
+        try {
+            const { filePath } = await dialog.showSaveDialog({
+                title: '导出日志',
+                defaultPath: `logs-${new Date().toISOString().split('T')[0]}.csv`,
+                filters: [
+                    { name: 'CSV 文件', extensions: ['csv'] }
+                ]
+            });
+
+            if (!filePath) {
+                return { success: false, error: '未选择保存位置' };
+            }
+
+            await fs.promises.writeFile(filePath, content, 'utf-8');
+            return { success: true };
+        } catch (error) {
+            logger.error('Export', '导出日志失败', error);
+            return { 
+                success: false, 
+                error: error instanceof Error ? error.message : '导出失败'
             };
         }
     }
@@ -1206,4 +1238,36 @@ function startStatusMonitor() {
             logger.error('Bot', '状态监控失败', error);
         }
     }, 60000); // 每分钟检查一次
+}
+
+// 在文件顶部添加日志转发设置
+logger.on('newLog', (logItem: LogItem) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('new-log', logItem);
+    }
+});
+
+function setupIPC() {
+    // ... 其他 IPC 处理程序 ...
+
+    // 添加导出日志的 IPC 处理
+    ipcMain.handle('export-logs', async (_, content: string) => {
+        try {
+            const { filePath } = await dialog.showSaveDialog({
+                title: '导出日志',
+                defaultPath: `logs-${new Date().toISOString().split('T')[0]}.csv`,
+                filters: [
+                    { name: 'CSV 文件', extensions: ['csv'] }
+                ]
+            });
+
+            if (filePath) {
+                await fs.promises.writeFile(filePath, content, 'utf-8');
+                return { success: true };
+            }
+            return { success: false, error: '未选择保存位置' };
+        } catch (error) {
+            return { success: false, error: String(error) };
+        }
+    });
 }

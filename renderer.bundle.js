@@ -7830,9 +7830,19 @@
               }
               return acc;
             }, []);
-            const pendingTasks = uniqueTasks.filter((t) => !t.completed && t.enabled);
-            const completedTasks = uniqueTasks.filter((t) => t.completed && t.lastStatus === "success");
-            const failedTasks = uniqueTasks.filter((t) => t.lastStatus === "failed");
+            const pendingTasks = uniqueTasks.filter(
+              (t) => !t.completed && t.enabled && !t.lastStatus
+              // 还未执行过
+            );
+            const completedTasks = uniqueTasks.filter(
+              (t) => t.completed && t.lastStatus === "success"
+              // 已完成且成功
+            );
+            const failedTasks = uniqueTasks.filter(
+              (t) => t.lastStatus === "failed" || // 执行失败
+              t.completed && t.lastStatus !== "success"
+              // 已完成但不是成功状态
+            );
             const disabledTasks = uniqueTasks.filter((t) => !t.enabled);
             this.container.innerHTML = `
             <div class="sort-controls">
@@ -7885,7 +7895,6 @@
                 <div class="task-controls">
                     <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">\u7F16\u8F91</button>
                     <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">\u5220\u9664</button>
-                    ${task.lastStatus === "failed" ? `<button class="btn-retry" onclick="window.scheduleManager.retryTask('${task.id}')">\u91CD\u8BD5</button>` : ""}
                 </div>
             </div>
             <div class="task-content">${task.message}</div>
@@ -8272,7 +8281,7 @@
         isValidTask(task) {
           return typeof task.id === "string" && typeof task.roomName === "string" && typeof task.message === "string" && typeof task.cron === "string" && typeof task.enabled === "boolean";
         }
-        // 添加模��选择UI
+        // 添加模选择UI
         renderTemplateSelector() {
           return `
       <div class="template-selector">
@@ -8740,6 +8749,7 @@
         constructor() {
           this.maxMessages = 5;
           this.messageTimeouts = /* @__PURE__ */ new Map();
+          this.messageSet = /* @__PURE__ */ new Set();
           const container = document.getElementById("keyMessages");
           if (!container) {
             console.error("KeyMessages container not found");
@@ -8774,6 +8784,11 @@
         }
         addMessage(message, type = "info", autoRemove = false) {
           const keepMessage = message.includes("\u673A\u5668\u4EBA\u5DF2\u542F\u52A8") || message.includes("\u5FAE\u4FE1\u767B\u5F55\u6210\u529F") || message.includes("API Key \u5DF2\u914D\u7F6E") || message.includes("\u767D\u540D\u5355\u5DF2\u914D\u7F6E") || message.includes("\u673A\u5668\u4EBA\u6B63\u5728\u8FD0\u884C");
+          const messageKey = `${message}-${type}`;
+          if (this.messageSet.has(messageKey)) {
+            return;
+          }
+          this.messageSet.add(messageKey);
           const messageElement = document.createElement("div");
           messageElement.className = `key-message ${type}`;
           const time = (/* @__PURE__ */ new Date()).toLocaleTimeString();
@@ -8791,6 +8806,9 @@
                 clearTimeout(timeout);
                 this.messageTimeouts.delete(lastChild);
               }
+              const lastMessage = lastChild.querySelector(".message")?.textContent || "";
+              const lastType = Array.from(lastChild.classList).find((cls) => ["info", "success", "warning", "error"].includes(cls)) || "info";
+              this.messageSet.delete(`${lastMessage}-${lastType}`);
               this.messageList.removeChild(lastChild);
             }
           }
@@ -8800,6 +8818,7 @@
               setTimeout(() => {
                 if (messageElement.parentNode === this.messageList) {
                   this.messageList.removeChild(messageElement);
+                  this.messageSet.delete(messageKey);
                 }
                 this.messageTimeouts.delete(messageElement);
               }, 300);
@@ -9045,6 +9064,95 @@
     }
   });
 
+  // dist/renderer/modules/logger.js
+  var require_logger = __commonJS({
+    "dist/renderer/modules/logger.js"(exports) {
+      "use strict";
+      Object.defineProperty(exports, "__esModule", { value: true });
+      exports.LogViewer = void 0;
+      var LogViewer = class {
+        constructor(containerId) {
+          const container = document.getElementById(containerId);
+          if (!container)
+            throw new Error("Log container not found");
+          this.container = container;
+          this.initUI();
+          this.bindEvents();
+        }
+        initUI() {
+          this.container.innerHTML = `
+            <div class="logs-header">
+                <h3>\u7CFB\u7EDF\u65E5\u5FD7</h3>
+                <div class="logs-controls">
+                    <button class="log-export btn-primary">\u5BFC\u51FA\u65E5\u5FD7</button>
+                </div>
+            </div>
+            <div class="logs-container">
+                <div class="log-list scrollable"></div>
+            </div>
+        `;
+          this.logList = this.container.querySelector(".log-list");
+          const exportBtn = this.container.querySelector(".log-export");
+          if (exportBtn) {
+            exportBtn.addEventListener("click", () => this.exportLogs());
+          }
+        }
+        bindEvents() {
+          window.electronAPI.on("new-log", (logItem) => {
+            this.addLogEntry(logItem);
+          });
+        }
+        addLogEntry(logItem) {
+          const entry = document.createElement("div");
+          entry.className = `log-entry ${logItem.level}`;
+          entry.innerHTML = `
+            <span class="log-time">${new Date(logItem.timestamp).toLocaleString()}</span>
+            <span class="log-level">${logItem.level.toUpperCase()}</span>
+            <span class="log-category">[${logItem.category}]</span>
+            <span class="log-message">${logItem.message}</span>
+            ${logItem.details ? `<pre class="log-details">${JSON.stringify(logItem.details, null, 2)}</pre>` : ""}
+        `;
+          this.logList.insertBefore(entry, this.logList.firstChild);
+        }
+        async exportLogs() {
+          try {
+            const logs = Array.from(this.logList.children).map((entry) => {
+              return {
+                time: entry.querySelector(".log-time")?.textContent,
+                level: entry.querySelector(".log-level")?.textContent,
+                category: entry.querySelector(".log-category")?.textContent,
+                message: entry.querySelector(".log-message")?.textContent,
+                details: entry.querySelector(".log-details")?.textContent
+              };
+            });
+            const csv = this.convertToCSV(logs);
+            const result = await window.electronAPI.exportLogs(csv);
+            if (!result.success) {
+              throw new Error(result.error);
+            }
+          } catch (error) {
+            console.error("\u5BFC\u51FA\u65E5\u5FD7\u5931\u8D25:", error);
+          }
+        }
+        convertToCSV(logs) {
+          const headers = ["\u65F6\u95F4", "\u7EA7\u522B", "\u7C7B\u522B", "\u6D88\u606F", "\u8BE6\u60C5"];
+          const rows = logs.map((log) => [
+            log.time || "",
+            log.level || "",
+            log.category || "",
+            log.message || "",
+            log.details || ""
+          ]);
+          return [
+            headers.join(","),
+            ...rows.map((row) => row.map((cell) => `"${(cell || "").replace(/"/g, '""')}"`).join(","))
+          ].join("\n");
+        }
+      };
+      exports.LogViewer = LogViewer;
+    }
+  });
+
   // dist/renderer/utils/renderer-logger.js
   var require_renderer_logger = __commonJS({
     "dist/renderer/utils/renderer-logger.js"(exports) {
@@ -9166,156 +9274,6 @@
     }
   });
 
-  // dist/renderer/components/log-viewer.js
-  var require_log_viewer = __commonJS({
-    "dist/renderer/components/log-viewer.js"(exports) {
-      "use strict";
-      Object.defineProperty(exports, "__esModule", { value: true });
-      exports.LogViewer = void 0;
-      var renderer_logger_1 = require_renderer_logger();
-      var LogViewer = class {
-        constructor(containerId) {
-          this.container = document.getElementById(containerId);
-          if (!this.container) {
-            console.error(`Container element with id "${containerId}" not found`);
-            throw new Error(`Container element with id "${containerId}" not found`);
-          }
-          this.initializeUI();
-          this.bindEvents();
-          renderer_logger_1.rendererLogger.subscribe(this.addLog.bind(this));
-        }
-        initializeUI() {
-          this.container.innerHTML = `
-      <div class="log-viewer">
-        <div class="log-filters">
-          <form class="filter-form">
-            <select class="level-select">
-              <option value="">\u6240\u6709\u7EA7\u522B</option>
-              <option value="debug">Debug</option>
-              <option value="info">Info</option>
-              <option value="warn">Warning</option>
-              <option value="error">Error</option>
-              <option value="success">Success</option>
-            </select>
-            <input type="text" class="category-input" placeholder="\u5206\u7C7B\u8FC7\u6EE4">
-            <input type="datetime-local" class="start-time">
-            <input type="datetime-local" class="end-time">
-            <button type="button" class="export-btn">\u5BFC\u51FA\u65E5\u5FD7</button>
-            <button type="button" class="clear-btn">\u6E05\u7A7A\u65E5\u5FD7</button>
-          </form>
-        </div>
-        <div class="log-list"></div>
-      </div>
-    `;
-          this.filterForm = this.container.querySelector(".filter-form");
-          this.logList = this.container.querySelector(".log-list");
-          this.levelSelect = this.container.querySelector(".level-select");
-          this.categoryInput = this.container.querySelector(".category-input");
-          this.startTimeInput = this.container.querySelector(".start-time");
-          this.endTimeInput = this.container.querySelector(".end-time");
-          this.addStyles();
-        }
-        addStyles() {
-          const style = document.createElement("style");
-          style.textContent = `
-      .log-viewer {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-      }
-      
-      .log-filters {
-        padding: 10px;
-        background: #f5f5f5;
-        border-bottom: 1px solid #ddd;
-      }
-      
-      .filter-form {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-      }
-      
-      .log-list {
-        flex: 1;
-        overflow-y: auto;
-        padding: 10px;
-        font-family: monospace;
-      }
-      
-      .log-item {
-        padding: 4px 8px;
-        margin: 2px 0;
-        border-radius: 4px;
-        font-size: 13px;
-      }
-      
-      .log-item.debug { color: #666; }
-      .log-item.info { color: #0066cc; }
-      .log-item.warn { color: #ff9900; background: #fff9e6; }
-      .log-item.error { color: #cc0000; background: #ffe6e6; }
-      .log-item.success { color: #006600; background: #e6ffe6; }
-    `;
-          document.head.appendChild(style);
-        }
-        bindEvents() {
-          this.filterForm.addEventListener("change", () => this.updateLogs());
-          this.categoryInput.addEventListener("input", () => this.updateLogs());
-          this.container.querySelector(".export-btn")?.addEventListener("click", () => this.exportLogs());
-          this.container.querySelector(".clear-btn")?.addEventListener("click", () => this.clearLogs());
-        }
-        updateLogs() {
-          const logs = renderer_logger_1.rendererLogger.getLogs({
-            level: this.levelSelect.value || void 0,
-            category: this.categoryInput.value || void 0,
-            startTime: this.startTimeInput.value || void 0,
-            endTime: this.endTimeInput.value || void 0
-          });
-          this.renderLogs(logs);
-        }
-        renderLogs(logs) {
-          this.logList.innerHTML = logs.map((log) => `
-      <div class="log-item ${log.level}">
-        <span class="timestamp">${new Date(log.timestamp).toLocaleString()}</span>
-        [${log.category}] ${log.message}
-        ${log.details ? `<pre>${JSON.stringify(log.details, null, 2)}</pre>` : ""}
-      </div>
-    `).join("");
-          this.logList.scrollTop = this.logList.scrollHeight;
-        }
-        async exportLogs() {
-          const logs = renderer_logger_1.rendererLogger.getLogs({
-            level: this.levelSelect.value || void 0,
-            category: this.categoryInput.value || void 0,
-            startTime: this.startTimeInput.value || void 0,
-            endTime: this.endTimeInput.value || void 0
-          });
-          const blob = new Blob([JSON.stringify(logs, null, 2)], { type: "application/json" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = `logs-${(/* @__PURE__ */ new Date()).toISOString()}.json`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        }
-        clearLogs() {
-          if (confirm("\u786E\u5B9A\u8981\u6E05\u7A7A\u6240\u6709\u65E5\u5FD7\u5417\uFF1F")) {
-            renderer_logger_1.rendererLogger.clearLogs();
-            this.updateLogs();
-          }
-        }
-        // 公共方法：添加新日志时调用
-        addLog(log) {
-          const logs = renderer_logger_1.rendererLogger.getLogs();
-          this.renderLogs(logs);
-        }
-      };
-      exports.LogViewer = LogViewer;
-    }
-  });
-
   // dist/renderer/index.js
   var require_renderer = __commonJS({
     "dist/renderer/index.js"(exports) {
@@ -9326,7 +9284,7 @@
       var bot_status_1 = require_bot_status();
       var qrcode_1 = require_qrcode();
       var config_manager_1 = require_config_manager();
-      var log_viewer_1 = require_log_viewer();
+      var logger_1 = require_logger();
       var renderer_logger_1 = require_renderer_logger();
       var key_messages_1 = require_key_messages();
       var loading = new loading_1.LoadingUI();
@@ -9362,7 +9320,7 @@
             }
             this.botStatus = new bot_status_1.BotStatus();
             this.configManager = new config_manager_1.ConfigManager();
-            this.logViewer = new log_viewer_1.LogViewer("logViewer");
+            this.logViewer = new logger_1.LogViewer("logViewer");
             this.initBotEventListeners();
             this.initTabSwitching();
             this.bindEvents();

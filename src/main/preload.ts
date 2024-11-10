@@ -18,7 +18,8 @@ const IPC_CHANNELS = {
   GET_SCHEDULE_TASKS: 'getScheduleTasks',
   ADD_SCHEDULE_TASK: 'addScheduleTask',
   TOGGLE_SCHEDULE_TASK: 'toggleScheduleTask',
-  DELETE_SCHEDULE_TASK: 'deleteScheduleTask'
+  DELETE_SCHEDULE_TASK: 'deleteScheduleTask',
+  EXPORT_LOGS: 'export-logs'
 } as const;
 
 // 暴露 API 到渲染进程
@@ -74,5 +75,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
         error: error instanceof Error ? error.message : '发送失败'
       };
     }
-  }
+  },
+  
+  // 添加导出日志的方法
+  exportLogs: (content: string) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_LOGS, content)
 }) 

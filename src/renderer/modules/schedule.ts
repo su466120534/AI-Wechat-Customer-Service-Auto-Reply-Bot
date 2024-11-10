@@ -137,10 +137,23 @@ export class ScheduleManager {
             return acc;
         }, []);
 
-        // 修改任务分类逻辑
-        const pendingTasks = uniqueTasks.filter(t => !t.completed && t.enabled);
-        const completedTasks = uniqueTasks.filter(t => t.completed && t.lastStatus === 'success');  // 只有成功完成的任务
-        const failedTasks = uniqueTasks.filter(t => t.lastStatus === 'failed');  // 只有失败的任务
+        // 修改任务分类逻辑，更严格的状态判断
+        const pendingTasks = uniqueTasks.filter(t => 
+            !t.completed && 
+            t.enabled && 
+            !t.lastStatus  // 还未执行过
+        );
+
+        const completedTasks = uniqueTasks.filter(t => 
+            t.completed && 
+            t.lastStatus === 'success'  // 已完成且成功
+        );
+
+        const failedTasks = uniqueTasks.filter(t => 
+            t.lastStatus === 'failed' ||  // 执行失败
+            (t.completed && t.lastStatus !== 'success')  // 已完成但不是成功状态
+        );
+
         const disabledTasks = uniqueTasks.filter(t => !t.enabled);
 
         this.container.innerHTML = `
@@ -413,7 +426,7 @@ export class ScheduleManager {
     const task = await this.getTask(taskId);
     if (!task) return;
 
-    // 填充表单，加���值检查
+    // 填充表单，加值检查
     if (this.scheduleMessageInput) this.scheduleMessageInput.value = task.message;
     
     // 解析 cron 表达式并填充表单
@@ -964,7 +977,7 @@ export class ScheduleManager {
   private async loadRoomOptions() {
     try {
         const config = await window.electronAPI.getConfig();
-        console.log('Loading room options from config:', config.roomWhitelist); // 添加调试日志
+        console.log('Loading room options from config:', config.roomWhitelist); // 添加���试日志
         
         // 清空现有选项（保留默认选项）
         while (this.roomSelect.options.length > 1) {

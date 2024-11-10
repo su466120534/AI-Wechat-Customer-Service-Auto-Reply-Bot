@@ -4,6 +4,7 @@ export class KeyMessages {
   private messageList: HTMLElement;
   private maxMessages: number = 5;  // 限制显示最近的5条消息
   private messageTimeouts: Map<HTMLElement, NodeJS.Timeout> = new Map();  // 添加超时管理
+  private messageSet: Set<string> = new Set();  // 添加消息去重集合
 
   constructor() {
     const container = document.getElementById('keyMessages');
@@ -55,6 +56,14 @@ export class KeyMessages {
                        message.includes('白名单已配置') ||
                        message.includes('机器人正在运行');
 
+    // 消息去重处理
+    const messageKey = `${message}-${type}`;
+    if (this.messageSet.has(messageKey)) {
+      // 如果是相同的消息，不重复添加
+      return;
+    }
+    this.messageSet.add(messageKey);
+
     const messageElement = document.createElement('div');
     messageElement.className = `key-message ${type}`;
     
@@ -81,6 +90,11 @@ export class KeyMessages {
           clearTimeout(timeout);
           this.messageTimeouts.delete(lastChild);
         }
+        // 从去重集合中移除
+        const lastMessage = lastChild.querySelector('.message')?.textContent || '';
+        const lastType = Array.from(lastChild.classList)
+          .find(cls => ['info', 'success', 'warning', 'error'].includes(cls)) || 'info';
+        this.messageSet.delete(`${lastMessage}-${lastType}`);
         this.messageList.removeChild(lastChild);
       }
     }
@@ -92,6 +106,8 @@ export class KeyMessages {
         setTimeout(() => {
           if (messageElement.parentNode === this.messageList) {
             this.messageList.removeChild(messageElement);
+            // 从去重集合中移除
+            this.messageSet.delete(messageKey);
           }
           this.messageTimeouts.delete(messageElement);
         }, 300); // 等待淡出动画完成

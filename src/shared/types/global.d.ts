@@ -49,6 +49,7 @@ declare global {
         message?: string;
         error?: string;
       }>;
+      exportLogs: (content: string) => Promise<{ success: boolean; error?: string }>;
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;
