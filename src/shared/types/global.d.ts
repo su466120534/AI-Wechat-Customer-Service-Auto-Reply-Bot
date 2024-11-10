@@ -1,3 +1,4 @@
+import { Config, ScheduleTask, TaskHistory } from './config';
 import { LogItem } from '../utils/logger'
 
 declare global {
@@ -37,38 +38,20 @@ declare global {
         message?: string;
         progress?: number;
       }) => void) => void;
+      saveConfig: (config: Config) => Promise<void>;
+      saveBotName: (name: string) => Promise<void>;
+      savePrefix: (prefix: string) => Promise<void>;
+      openExternal: (url: string) => Promise<void>;
+      invoke: (channel: string, ...args: any[]) => Promise<any>;
+      on: (channel: string, callback: (...args: any[]) => void) => void;
+      testDirectSend: (roomName: string, message: string) => Promise<{
+        success: boolean;
+        message?: string;
+        error?: string;
+      }>;
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;
-  }
-
-  interface ScheduleTask {
-    id: string;
-    roomNames: string[];
-    message: string;
-    cron: string;
-    enabled: boolean;
-    lastRun?: string;
-    lastStatus?: 'success' | 'failed';
-    histories?: TaskHistory[];
-  }
-
-  interface Config {
-    aitiwoKey: string;
-    contactWhitelist: string[];
-    roomWhitelist: string[];
-    schedules: ScheduleTask[];
-    botStatus: {
-      isLoggedIn: boolean;
-      lastLoginTime?: string;
-      userName?: string;
-    };
-  }
-
-  interface TaskHistory {
-    executionTime: string;
-    status: 'success' | 'failed';
-    error?: string;
   }
 }
 

@@ -7784,19 +7784,35 @@
           this.loadWhitelistRooms();
           this.bindScheduleEvents();
           this.loadTasks();
+          window.electronAPI.on("task-status-update", async () => {
+            await this.loadTasks();
+          });
+          window.electronAPI.on("refresh-tasks", async () => {
+            await this.loadTasks();
+          });
         }
         bindScheduleEvents() {
           this.addScheduleButton.addEventListener("click", async () => {
             console.log("Add schedule button clicked");
             await this.handleAddTask();
           });
+          const testButton = document.createElement("button");
+          testButton.className = "btn-test";
+          testButton.textContent = "\u6D4B\u8BD5\u53D1\u9001(\u7ACB\u5373)";
+          testButton.onclick = () => this.testSendMessage();
+          this.addScheduleButton.parentElement?.insertBefore(testButton, this.addScheduleButton.nextSibling);
           this.bindRepeatTypeEvents();
         }
         async loadTasks() {
           try {
             const tasks = await window.electronAPI.getScheduleTasks();
             if (Array.isArray(tasks)) {
-              this.renderTasks(tasks);
+              const validTasks = tasks.map((task) => ({
+                ...task,
+                isOneTime: task.isOneTime || false,
+                createdAt: task.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+              }));
+              this.renderTasks(validTasks);
             } else {
               console.error("Invalid tasks data:", tasks);
               this.renderTasks([]);
@@ -7807,28 +7823,91 @@
           }
         }
         renderTasks(tasks) {
-          if (!Array.isArray(tasks)) {
-            console.error("Invalid tasks array:", tasks);
-            this.container.innerHTML = "";
-            return;
+          try {
+            const uniqueTasks = tasks.reduce((acc, curr) => {
+              if (!acc.find((t) => t.id === curr.id)) {
+                acc.push(curr);
+              }
+              return acc;
+            }, []);
+            const pendingTasks = uniqueTasks.filter((t) => !t.completed && t.enabled);
+            const completedTasks = uniqueTasks.filter((t) => t.completed && t.lastStatus === "success");
+            const failedTasks = uniqueTasks.filter((t) => t.lastStatus === "failed");
+            const disabledTasks = uniqueTasks.filter((t) => !t.enabled);
+            this.container.innerHTML = `
+            <div class="sort-controls">
+                <select onchange="window.scheduleManager.sortTasks(this.value)">
+                    <option value="next">\u6309\u6267\u884C\u65F6\u95F4\u6392\u5E8F</option>
+                    <option value="added">\u6309\u6DFB\u52A0\u65F6\u95F4\u6392\u5E8F</option>
+                </select>
+            </div>
+            
+            <div class="tasks-section">
+                <h3>\u5F85\u6267\u884C\u4EFB\u52A1 (${pendingTasks.length})</h3>
+                <div class="tasks-list pending-tasks">
+                    ${pendingTasks.map((task) => this.renderTaskItem(task)).join("")}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>\u5DF2\u5B8C\u6210\u4EFB\u52A1 (${completedTasks.length})</h3>
+                <div class="tasks-list completed-tasks">
+                    ${completedTasks.map((task) => this.renderTaskItem(task)).join("")}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>\u6267\u884C\u5931\u8D25\u4EFB\u52A1 (${failedTasks.length})</h3>
+                <div class="tasks-list failed-tasks">
+                    ${failedTasks.map((task) => this.renderTaskItem(task, true)).join("")}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>\u5DF2\u7981\u7528\u4EFB\u52A1 (${disabledTasks.length})</h3>
+                <div class="tasks-list disabled-tasks">
+                    ${disabledTasks.map((task) => this.renderTaskItem(task)).join("")}
+                </div>
+            </div>
+        `;
+          } catch (error) {
+            console.error("Failed to render tasks:", error);
           }
-          this.container.innerHTML = tasks.map((task) => this.renderTaskItem(task)).join("");
         }
-        renderTaskItem(task) {
+        renderTaskItem(task, showError = false) {
           const roomNames = task.roomNames || [];
+          const nextRunTime = this.getNextRunTime(task.cron);
+          const status = this.getTaskStatus(task, nextRunTime);
           return `
-        <div class="schedule-item" data-id="${task.id}">
+        <div class="schedule-item ${status.className}" data-id="${task.id}">
             <div class="task-header">
                 <div class="task-title">\u53D1\u9001\u81F3: ${roomNames.join(", ")}</div>
                 <div class="task-controls">
                     <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">\u7F16\u8F91</button>
-                    <button class="btn-copy" onclick="window.scheduleManager.copyTask('${task.id}')">\u590D\u5236</button>
                     <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">\u5220\u9664</button>
+                    ${task.lastStatus === "failed" ? `<button class="btn-retry" onclick="window.scheduleManager.retryTask('${task.id}')">\u91CD\u8BD5</button>` : ""}
                 </div>
             </div>
             <div class="task-content">${task.message}</div>
             <div class="task-footer">
-                <div class="task-schedule">\u6267\u884C\u65F6\u95F4: ${this.cronToReadableText(task.cron)}</div>
+                <div class="task-info">
+                    <div class="task-schedule">\u6267\u884C\u65F6\u95F4: ${this.cronToReadableText(task.cron)}</div>
+                    <div class="task-next-run">
+                        <span class="status-badge ${status.className}">${status.text}</span>
+                        ${nextRunTime && !task.completed ? `<span class="countdown">\u8DDD\u79BB\u4E0B\u6B21\u6267\u884C: ${this.getTimeRemaining(nextRunTime)}</span>` : ""}
+                    </div>
+                    ${task.lastRun ? `
+                        <div class="task-last-run">
+                            \u4E0A\u6B21\u6267\u884C: ${new Date(task.lastRun).toLocaleString()}
+                            <span class="status-badge ${task.lastStatus || ""}">${task.lastStatus === "success" ? "\u6210\u529F" : "\u5931\u8D25"}</span>
+                        </div>
+                    ` : ""}
+                    ${showError && task.error ? `
+                        <div class="task-error">
+                            \u5931\u8D25\u539F\u56E0: ${task.error}
+                        </div>
+                    ` : ""}
+                </div>
                 <div class="task-status">
                     <label class="switch">
                         <input type="checkbox" 
@@ -7852,7 +7931,7 @@
           } else if (dayOfMonth === "*" && month === "*" && dayOfWeek === "*") {
             return `\u6BCF\u5929 ${hour}:${minute}`;
           } else if (dayOfMonth === "*" && month === "*" && dayOfWeek !== "*") {
-            const weekdays = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+            const weekdays = ["\u5468", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
             const days = dayOfWeek.split(",").map((d) => weekdays[parseInt(d)]);
             return `\u6BCF${days.join("\u3001")} ${hour}:${minute}`;
           } else if (dayOfWeek.includes("L")) {
@@ -7877,17 +7956,12 @@
         }
         async handleAddTask() {
           try {
-            console.log("Handling add task...");
             if (this.selectedRooms.size === 0) {
               throw new Error("\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u4E2A\u7FA4\u804A");
             }
             const message = this.scheduleMessageInput?.value.trim() || "";
             const cronExpression = this.generateCronExpression();
-            console.log("Task data:", {
-              selectedRooms: Array.from(this.selectedRooms),
-              message,
-              cronExpression
-            });
+            const repeatType = document.getElementById("repeatType").value;
             if (!message) {
               throw new Error("\u8BF7\u8F93\u5165\u6D88\u606F\u5185\u5BB9");
             }
@@ -7899,7 +7973,10 @@
               roomNames: Array.from(this.selectedRooms),
               message,
               cron: cronExpression,
-              enabled: true
+              enabled: true,
+              isOneTime: repeatType === "once",
+              // 添加是否一次性任务的标记
+              createdAt: (/* @__PURE__ */ new Date()).toISOString()
             };
             const result = await window.electronAPI.addScheduleTask(task);
             if (!result.success) {
@@ -7942,7 +8019,7 @@
           }
         }
         async deleteTask(taskId) {
-          if (!confirm("\u786E\u5B9A\u8981\u5220\u9664\u8FD9\u4E2A\u4EFB\u52A1\u5417\uFF1F")) {
+          if (!confirm("\u786E\u5B9A\u5220\u9664\u8FD9\u4E2A\u4EFB\u52A1\u5417\uFF1F")) {
             return;
           }
           try {
@@ -8028,28 +8105,18 @@
           }
           this.scheduleMessageInput?.scrollIntoView({ behavior: "smooth" });
         }
-        async copyTask(taskId) {
-          const task = await this.getTask(taskId);
-          if (!task)
-            return;
-          const newTask = {
-            ...task,
-            id: Date.now().toString(),
-            roomNames: [...task.roomNames]
-            // 复制群名数组
-          };
-          const result = await window.electronAPI.addScheduleTask(newTask);
-          if (result.success) {
-            notification_1.notification.show("\u4EFB\u52A1\u590D\u5236\u6210\u529F", "success");
-            await this.loadTasks();
-          } else {
-            notification_1.notification.show(result.error || "\u590D\u5236\u5931\u8D25", "error");
-          }
-        }
         async getTask(taskId) {
           try {
             const tasks = await window.electronAPI.getScheduleTasks();
-            return tasks.find((task) => task.id === taskId) || null;
+            const task = tasks.find((t) => t.id === taskId);
+            if (task) {
+              return {
+                ...task,
+                isOneTime: task.isOneTime || false,
+                createdAt: task.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+              };
+            }
+            return null;
           } catch (error) {
             notification_1.notification.show("\u83B7\u53D6\u4EFB\u52A1\u5931\u8D25", "error");
             return null;
@@ -8060,7 +8127,7 @@
           const next = new Date(nextRunTime).getTime();
           const diff = next - now;
           if (isNaN(diff) || diff < 0) {
-            return "\u5DF2\u8FC7\u671F";
+            return "\u8FC7\u671F";
           }
           const days = Math.floor(diff / (1e3 * 60 * 60 * 24));
           const hours = Math.floor(diff % (1e3 * 60 * 60 * 24) / (1e3 * 60 * 60));
@@ -8167,7 +8234,7 @@
             URL.revokeObjectURL(url);
             notification_1.notification.show("\u4EFB\u52A1\u5BFC\u51FA\u6210\u529F", "success");
           } catch (error) {
-            notification_1.notification.show("\u5BFC\u51FA\u5931\u8D25", "error");
+            notification_1.notification.show("\u5BFC\u51FA\u5931", "error");
           }
         }
         async importTasks() {
@@ -8205,7 +8272,7 @@
         isValidTask(task) {
           return typeof task.id === "string" && typeof task.roomName === "string" && typeof task.message === "string" && typeof task.cron === "string" && typeof task.enabled === "boolean";
         }
-        // 添加模板选择UI
+        // 添加模��选择UI
         renderTemplateSelector() {
           return `
       <div class="template-selector">
@@ -8459,6 +8526,109 @@
             console.error("Failed to load room options:", error);
           }
         }
+        // 获取任务下次执行时间
+        getNextRunTime(cron) {
+          try {
+            const parser = require_parser();
+            const interval = parser.parseExpression(cron);
+            return interval.next().toDate().toISOString();
+          } catch (error) {
+            return null;
+          }
+        }
+        // 获取任务状态
+        getTaskStatus(task, nextRunTime) {
+          if (task.completed) {
+            return { className: "completed", text: "\u5DF2\u5B8C\u6210" };
+          }
+          if (!task.enabled) {
+            return { className: "disabled", text: "\u5DF2\u7981\u7528" };
+          }
+          if (!nextRunTime) {
+            return { className: "error", text: "\u65F6\u95F4\u8BBE\u7F6E\u9519\u8BEF" };
+          }
+          const now = (/* @__PURE__ */ new Date()).getTime();
+          const next = new Date(nextRunTime).getTime();
+          if (task.lastStatus === "failed") {
+            return { className: "failed", text: "\u4E0A\u6B21\u6267\u884C\u5931\u8D25" };
+          }
+          if (next < now) {
+            return { className: "expired", text: "\u5DF2\u8FC7\u671F" };
+          }
+          return { className: "pending", text: "\u7B49\u5F85\u6267\u884C" };
+        }
+        // 排序任务
+        async sortTasks(sortBy) {
+          const tasks = await window.electronAPI.getScheduleTasks();
+          const validTasks = tasks.map((task) => ({
+            ...task,
+            isOneTime: task.isOneTime || false,
+            createdAt: task.createdAt || (/* @__PURE__ */ new Date()).toISOString()
+          }));
+          const sortedTasks = [...validTasks].sort((a, b) => {
+            if (sortBy === "next") {
+              const nextA = this.getNextRunTime(a.cron);
+              const nextB = this.getNextRunTime(b.cron);
+              return (nextA ? new Date(nextA).getTime() : 0) - (nextB ? new Date(nextB).getTime() : 0);
+            } else {
+              return parseInt(a.id) - parseInt(b.id);
+            }
+          });
+          this.renderTasks(sortedTasks);
+        }
+        // 修改测试方法，添加更多日志
+        async testSendMessage() {
+          try {
+            console.log("\u5F00\u59CB\u6D4B\u8BD5\u53D1\u9001\u6D88\u606F...");
+            if (this.selectedRooms.size === 0) {
+              console.log("\u9519\u8BEF: \u672A\u9009\u62E9\u4EFB\u4F55\u7FA4\u804A");
+              notification_1.notification.show("\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u4E2A\u7FA4\u804A", "error");
+              return;
+            }
+            console.log("\u5DF2\u9009\u62E9\u7684\u7FA4\u804A:", Array.from(this.selectedRooms));
+            const message = this.scheduleMessageInput?.value.trim() || "";
+            if (!message) {
+              console.log("\u9519\u8BEF: \u6D88\u606F\u5185\u5BB9\u4E3A\u7A7A");
+              notification_1.notification.show("\u8BF7\u8F93\u5165\u6D88\u606F\u5185\u5BB9", "error");
+              return;
+            }
+            console.log("\u5F85\u53D1\u9001\u7684\u6D88\u606F:", message);
+            const now = /* @__PURE__ */ new Date();
+            const executeTime = new Date(now.getTime() + 6e4);
+            console.log("\u5F53\u524D\u65F6\u95F4:", now.toLocaleString());
+            console.log("\u8BA1\u5212\u6267\u884C\u65F6\u95F4:", executeTime.toLocaleString());
+            const task = {
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              roomNames: Array.from(this.selectedRooms),
+              message,
+              // 修改 cron 表达式生成方式
+              cron: `${executeTime.getMinutes()} ${executeTime.getHours()} * * *`,
+              enabled: true,
+              isOneTime: true,
+              createdAt: (/* @__PURE__ */ new Date()).toISOString()
+            };
+            console.log("\u521B\u5EFA\u7684\u4EFB\u52A1:", {
+              id: task.id,
+              roomNames: task.roomNames,
+              cron: task.cron,
+              message: task.message,
+              executionTime: executeTime.toLocaleString()
+            });
+            const result = await window.electronAPI.testDirectSend(
+              Array.from(this.selectedRooms)[0],
+              // 取第一个群进行测试
+              message
+            );
+            if (result.success) {
+              notification_1.notification.show("\u6D4B\u8BD5\u6D88\u606F\u53D1\u9001\u6210\u529F", "success", 5e3);
+            } else {
+              throw new Error(result.error || "\u53D1\u9001\u5931\u8D25");
+            }
+          } catch (error) {
+            console.error("\u6D4B\u8BD5\u53D1\u9001\u6D88\u606F\u5931\u8D25:", error);
+            notification_1.notification.show(error instanceof Error ? error.message : "\u6D4B\u8BD5\u5931\u8D25", "error", 5e3);
+          }
+        }
       };
       exports.ScheduleManager = ScheduleManager;
     }
@@ -8664,16 +8834,26 @@
         constructor() {
           this.saveTimeout = null;
           this.config = {
+            aitiwoKey: "",
             contactWhitelist: [],
             roomWhitelist: [],
-            schedules: []
+            schedules: [],
+            botName: "",
+            autoReplyPrefix: "",
+            botStatus: {
+              isLoggedIn: false
+            }
           };
           this.aitiwoKeyInput = document.getElementById("aitiwoKey");
           this.contactWhitelistTextarea = document.getElementById("contactWhitelist");
           this.roomWhitelistTextarea = document.getElementById("roomWhitelist");
+          this.botNameInput = document.getElementById("botName");
+          this.autoReplyPrefixInput = document.getElementById("autoReplyPrefix");
           this.bindEvents();
           this.loadConfig();
           this.initHelpText();
+          this.botNameInput.addEventListener("change", () => this.handleBotNameChange());
+          this.autoReplyPrefixInput.addEventListener("change", () => this.handlePrefixChange());
         }
         bindEvents() {
           this.contactWhitelistTextarea.addEventListener("input", () => this.handleWhitelistChange());
@@ -8689,6 +8869,8 @@
             this.contactWhitelistTextarea.value = config.contactWhitelist.join("\n");
             this.roomWhitelistTextarea.value = config.roomWhitelist.join("\n");
             this.aitiwoKeyInput.value = config.aitiwoKey || "";
+            this.botNameInput.value = config.botName || "";
+            this.autoReplyPrefixInput.value = config.autoReplyPrefix || "";
           } catch (error) {
             notification_1.notification.show("\u52A0\u8F7D\u914D\u7F6E\u5931\u8D25", "error");
           }
@@ -8753,7 +8935,7 @@
           try {
             const config = await window.electronAPI.getConfig();
             config.schedules = schedules;
-            await window.electronAPI.invoke("save-config", config);
+            await window.electronAPI.saveConfig(config);
           } catch (error) {
             console.error("Failed to save schedules:", error);
             throw error;
@@ -8838,6 +9020,24 @@
                 document.addEventListener("click", closeTooltip);
               }, 0);
             });
+          }
+        }
+        async handleBotNameChange() {
+          try {
+            const name = this.botNameInput.value.trim();
+            await window.electronAPI.saveBotName(name);
+            notification_1.notification.show("\u673A\u5668\u4EBA\u540D\u79F0\u5DF2\u4FDD\u5B58", "success");
+          } catch (error) {
+            notification_1.notification.show("\u4FDD\u5B58\u5931\u8D25", "error");
+          }
+        }
+        async handlePrefixChange() {
+          try {
+            const prefix = this.autoReplyPrefixInput.value.trim();
+            await window.electronAPI.savePrefix(prefix);
+            notification_1.notification.show("\u81EA\u52A8\u56DE\u590D\u524D\u7F00\u5DF2\u4FDD\u5B58", "success");
+          } catch (error) {
+            notification_1.notification.show("\u4FDD\u5B58\u5931\u8D25", "error");
           }
         }
       };

@@ -1,19 +1,4 @@
-interface ScheduleTask {
-  id: string;
-  roomNames: string[];
-  message: string;
-  cron: string;
-  enabled: boolean;
-  lastRun?: string;
-  lastStatus?: 'success' | 'failed';
-  histories?: TaskHistory[];
-}
-
-interface TaskHistory {
-  executionTime: string;
-  status: 'success' | 'failed';
-  error?: string;
-}
+import { Config, ScheduleTask, TaskHistory } from '../../shared/types/config';
 
 interface TaskStatusUpdate {
   taskId: string;
@@ -39,11 +24,16 @@ interface Window {
       contactWhitelist: string[];
       aitiwoKey?: string;
       schedules: ScheduleTask[];
+      botName: string;
+      autoReplyPrefix: string;
     }>;
     onScheduleError: (callback: (error: any) => void) => void;
     onTaskStatusUpdate: (callback: (update: TaskStatusUpdate) => void) => void;
     saveWhitelist: (data: { contacts: string[]; rooms: string[] }) => Promise<{ success: boolean; error?: string }>;
     saveAitiwoKey: (key: string) => Promise<{ success: boolean; error?: string }>;
     openExternal: (url: string) => Promise<void>;
+    saveConfig: (config: Config) => Promise<void>;
+    saveBotName: (name: string) => Promise<void>;
+    savePrefix: (prefix: string) => Promise<void>;
   }
 } 

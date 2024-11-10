@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, shell } from 'electron'
+import { Config, ScheduleTask } from '../shared/types/config'
 
 // 定义所有 IPC 通道名称，与主进程保持一致
 const IPC_CHANNELS = {
@@ -60,5 +61,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('task-status-update', (_event, update) => callback(update)),
   
   // 添加打开外部链接的方法
-  openExternal: (url: string) => shell.openExternal(url)
+  openExternal: (url: string) => shell.openExternal(url),
+  
+  // 添加测试发送方法
+  testDirectSend: async (roomName: string, message: string) => {
+    try {
+      return await ipcRenderer.invoke('test-direct-send', roomName, message);
+    } catch (error) {
+      console.error('Test send failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : '发送失败'
+      };
+    }
+  }
 }) 

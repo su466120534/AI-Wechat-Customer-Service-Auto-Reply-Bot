@@ -1,4 +1,5 @@
 import { notification } from '../components/notification';
+import { ScheduleTask, TaskHistory } from '../../shared/types/config';
 
 // 添加任务模板相关代码
 interface TaskTemplate {
@@ -7,18 +8,6 @@ interface TaskTemplate {
   roomName: string;
   message: string;
   cron: string;
-}
-
-// 在文件顶部添加类型导入
-interface ScheduleTask {
-  id: string;
-  roomNames: string[];
-  message: string;
-  cron: string;
-  enabled: boolean;
-  lastRun?: string;
-  lastStatus?: 'success' | 'failed';
-  histories?: TaskHistory[];
 }
 
 export class ScheduleManager {
@@ -80,12 +69,22 @@ export class ScheduleManager {
       throw new Error('Required schedule elements not found');
     }
 
-    // 初始化顺序很重要
+    // 化顺序很重要
     this.initRoomInput();  // 1. 先初始化输入相关事件
     this.loadRoomOptions();  // 2. 加载群聊选项到下拉框
     this.loadWhitelistRooms();  // 3. 加载默认选中的群聊
     this.bindScheduleEvents();  // 4. 绑定其他事件
     this.loadTasks();  // 5. 加载现有任务
+
+    // 监听任务状态更新
+    window.electronAPI.on('task-status-update', async () => {
+        await this.loadTasks();  // 刷新任务列表
+    });
+
+    // 监听刷新任务列表事件
+    window.electronAPI.on('refresh-tasks', async () => {
+        await this.loadTasks();  // 刷新任务列表
+    });
   }
 
   private bindScheduleEvents() {
@@ -95,6 +94,15 @@ export class ScheduleManager {
       await this.handleAddTask();
     });
     
+    // 添加测试按钮
+    const testButton = document.createElement('button');
+    testButton.className = 'btn-test';
+    testButton.textContent = '测试发送(立即)';
+    testButton.onclick = () => this.testSendMessage();
+    
+    // 将测试按钮添加到表单中
+    this.addScheduleButton.parentElement?.insertBefore(testButton, this.addScheduleButton.nextSibling);
+    
     // 绑定重复类型事件
     this.bindRepeatTypeEvents();
   }
@@ -103,7 +111,12 @@ export class ScheduleManager {
     try {
       const tasks = await window.electronAPI.getScheduleTasks();
       if (Array.isArray(tasks)) {
-        this.renderTasks(tasks);
+        const validTasks = tasks.map(task => ({
+          ...task,
+          isOneTime: task.isOneTime || false,
+          createdAt: task.createdAt || new Date().toISOString()
+        }));
+        this.renderTasks(validTasks);
       } else {
         console.error('Invalid tasks data:', tasks);
         this.renderTasks([]);
@@ -115,30 +128,96 @@ export class ScheduleManager {
   }
 
   private renderTasks(tasks: ScheduleTask[]) {
-    if (!Array.isArray(tasks)) {
-      console.error('Invalid tasks array:', tasks);
-      this.container.innerHTML = '';
-      return;
+    try {
+        // 先去重，避免重复显示
+        const uniqueTasks = tasks.reduce((acc: ScheduleTask[], curr) => {
+            if (!acc.find(t => t.id === curr.id)) {
+                acc.push(curr);
+            }
+            return acc;
+        }, []);
+
+        // 修改任务分类逻辑
+        const pendingTasks = uniqueTasks.filter(t => !t.completed && t.enabled);
+        const completedTasks = uniqueTasks.filter(t => t.completed && t.lastStatus === 'success');  // 只有成功完成的任务
+        const failedTasks = uniqueTasks.filter(t => t.lastStatus === 'failed');  // 只有失败的任务
+        const disabledTasks = uniqueTasks.filter(t => !t.enabled);
+
+        this.container.innerHTML = `
+            <div class="sort-controls">
+                <select onchange="window.scheduleManager.sortTasks(this.value)">
+                    <option value="next">按执行时间排序</option>
+                    <option value="added">按添加时间排序</option>
+                </select>
+            </div>
+            
+            <div class="tasks-section">
+                <h3>待执行任务 (${pendingTasks.length})</h3>
+                <div class="tasks-list pending-tasks">
+                    ${pendingTasks.map(task => this.renderTaskItem(task)).join('')}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>已完成任务 (${completedTasks.length})</h3>
+                <div class="tasks-list completed-tasks">
+                    ${completedTasks.map(task => this.renderTaskItem(task)).join('')}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>执行失败任务 (${failedTasks.length})</h3>
+                <div class="tasks-list failed-tasks">
+                    ${failedTasks.map(task => this.renderTaskItem(task, true)).join('')}
+                </div>
+            </div>
+
+            <div class="tasks-section">
+                <h3>已禁用任务 (${disabledTasks.length})</h3>
+                <div class="tasks-list disabled-tasks">
+                    ${disabledTasks.map(task => this.renderTaskItem(task)).join('')}
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Failed to render tasks:', error);
     }
-    this.container.innerHTML = tasks.map(task => this.renderTaskItem(task)).join('');
   }
 
-  private renderTaskItem(task: ScheduleTask): string {
+  private renderTaskItem(task: ScheduleTask, showError: boolean = false): string {
     const roomNames = task.roomNames || [];
+    const nextRunTime = this.getNextRunTime(task.cron);
+    const status = this.getTaskStatus(task, nextRunTime);
     
     return `
-        <div class="schedule-item" data-id="${task.id}">
+        <div class="schedule-item ${status.className}" data-id="${task.id}">
             <div class="task-header">
                 <div class="task-title">发送至: ${roomNames.join(', ')}</div>
                 <div class="task-controls">
                     <button class="btn-edit" onclick="window.scheduleManager.editTask('${task.id}')">编辑</button>
-                    <button class="btn-copy" onclick="window.scheduleManager.copyTask('${task.id}')">复制</button>
                     <button class="btn-delete" onclick="window.scheduleManager.deleteTask('${task.id}')">删除</button>
                 </div>
             </div>
             <div class="task-content">${task.message}</div>
             <div class="task-footer">
-                <div class="task-schedule">执行时间: ${this.cronToReadableText(task.cron)}</div>
+                <div class="task-info">
+                    <div class="task-schedule">执行时间: ${this.cronToReadableText(task.cron)}</div>
+                    <div class="task-next-run">
+                        <span class="status-badge ${status.className}">${status.text}</span>
+                        ${nextRunTime && !task.completed ? `<span class="countdown">距离下次执行: ${this.getTimeRemaining(nextRunTime)}</span>` : ''}
+                    </div>
+                    ${task.lastRun ? `
+                        <div class="task-last-run">
+                            上次执行: ${new Date(task.lastRun).toLocaleString()}
+                            <span class="status-badge ${task.lastStatus || ''}">${task.lastStatus === 'success' ? '成功' : '失败'}</span>
+                        </div>
+                    ` : ''}
+                    ${showError && task.error ? `
+                        <div class="task-error">
+                            失败原因: ${task.error}
+                        </div>
+                    ` : ''}
+                </div>
                 <div class="task-status">
                     <label class="switch">
                         <input type="checkbox" 
@@ -168,7 +247,7 @@ export class ScheduleManager {
         return `每天 ${hour}:${minute}`;
     } else if (dayOfMonth === '*' && month === '*' && dayOfWeek !== '*') {
         // 每周执行
-        const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+        const weekdays = ['周', '周一', '周二', '周三', '周四', '周五', '周六'];
         const days = dayOfWeek.split(',').map(d => weekdays[parseInt(d)]);
         return `每${days.join('、')} ${hour}:${minute}`;
     } else if (dayOfWeek.includes('L')) {
@@ -198,20 +277,13 @@ export class ScheduleManager {
 
   private async handleAddTask() {
     try {
-      console.log('Handling add task...'); // 添加调试日志
-      
       if (this.selectedRooms.size === 0) {
         throw new Error('请选择至少一个群聊');
       }
 
       const message = this.scheduleMessageInput?.value.trim() || '';
       const cronExpression = this.generateCronExpression();
-
-      console.log('Task data:', { // 添加调试日志
-        selectedRooms: Array.from(this.selectedRooms),
-        message,
-        cronExpression
-      });
+      const repeatType = (document.getElementById('repeatType') as HTMLSelectElement).value;
 
       // 输入验证
       if (!message) {
@@ -228,7 +300,9 @@ export class ScheduleManager {
         roomNames: Array.from(this.selectedRooms),
         message,
         cron: cronExpression,
-        enabled: true
+        enabled: true,
+        isOneTime: repeatType === 'once',  // 添加是否一次性任务的标记
+        createdAt: new Date().toISOString()
       };
 
       const result = await window.electronAPI.addScheduleTask(task);
@@ -272,7 +346,7 @@ export class ScheduleManager {
   }
 
   async deleteTask(taskId: string) {
-    if (!confirm('确定要删除这个任务吗？')) {
+    if (!confirm('确定删除这个任务吗？')) {
       return;
     }
     
@@ -280,7 +354,7 @@ export class ScheduleManager {
       const result = await window.electronAPI.deleteScheduleTask(taskId);
       
       if (result.success) {
-        notification.show('任务已删除', 'success', 2000);  // 成功类消息显示2秒
+        notification.show('任务已删除', 'success', 2000);  // 成功类消息示2秒
         await this.loadTasks();
       } else {
         throw new Error(result.error || '删除失败');
@@ -339,7 +413,7 @@ export class ScheduleManager {
     const task = await this.getTask(taskId);
     if (!task) return;
 
-    // 填充表单，加空值检查
+    // 填充表单，加���值检查
     if (this.scheduleMessageInput) this.scheduleMessageInput.value = task.message;
     
     // 解析 cron 表达式并填充表单
@@ -377,29 +451,18 @@ export class ScheduleManager {
     this.scheduleMessageInput?.scrollIntoView({ behavior: 'smooth' });
   }
 
-  async copyTask(taskId: string) {
-    const task = await this.getTask(taskId);
-    if (!task) return;
-
-    const newTask: ScheduleTask = {
-      ...task,
-      id: Date.now().toString(),
-      roomNames: [...task.roomNames],  // 复制群名数组
-    };
-
-    const result = await window.electronAPI.addScheduleTask(newTask);
-    if (result.success) {
-      notification.show('任务复制成功', 'success');
-      await this.loadTasks();
-    } else {
-      notification.show(result.error || '复制失败', 'error');
-    }
-  }
-
   private async getTask(taskId: string): Promise<ScheduleTask | null> {
     try {
       const tasks = await window.electronAPI.getScheduleTasks();
-      return tasks.find((task: ScheduleTask) => task.id === taskId) || null;
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        return {
+          ...task,
+          isOneTime: task.isOneTime || false,
+          createdAt: task.createdAt || new Date().toISOString()
+        };
+      }
+      return null;
     } catch (error) {
       notification.show('获取任务失败', 'error');
       return null;
@@ -411,9 +474,9 @@ export class ScheduleManager {
     const next = new Date(nextRunTime).getTime();
     const diff = next - now;
 
-    // 如果时间无效或已过期
+    // 如果时间无效或已过
     if (isNaN(diff) || diff < 0) {
-      return '已过期';
+      return '过期';
     }
 
     // 计算时间差
@@ -542,7 +605,7 @@ export class ScheduleManager {
 
       notification.show('任务导出成功', 'success');
     } catch (error) {
-      notification.show('导出失败', 'error');
+      notification.show('导出失', 'error');
     }
   }
 
@@ -566,7 +629,7 @@ export class ScheduleManager {
               throw new Error('无效的任务数据格式');
             }
 
-            // 量添加任务
+            // 量添任务
             for (const task of tasks) {
               await window.electronAPI.addScheduleTask(task);
             }
@@ -596,7 +659,7 @@ export class ScheduleManager {
     );
   }
 
-  // 添加模板选择UI
+  // 添加模选择UI
   private renderTemplateSelector(): string {
     return `
       <div class="template-selector">
@@ -653,7 +716,7 @@ export class ScheduleManager {
         }
     }
 
-    // 关闭模板选择器
+    // 关模板选择器
     document.querySelector('.template-dropdown')?.classList.remove('show');
   }
 
@@ -908,7 +971,7 @@ export class ScheduleManager {
             this.roomSelect.remove(1);
         }
         
-        // 添加白名单群聊作为选项（排除已选择的群）
+        // 添加白名单群作为选项（排除已选择的群）
         config.roomWhitelist
             .filter(room => !this.selectedRooms.has(room))
             .forEach(room => {
@@ -925,6 +988,133 @@ export class ScheduleManager {
         });
     } catch (error) {
         console.error('Failed to load room options:', error);
+    }
+  }
+
+  // 获取任务下次执行时间
+  private getNextRunTime(cron: string): string | null {
+    try {
+        const parser = require('cron-parser');
+        const interval = parser.parseExpression(cron);
+        return interval.next().toDate().toISOString();
+    } catch (error) {
+        return null;
+    }
+  }
+
+  // 获取任务状态
+  private getTaskStatus(task: ScheduleTask, nextRunTime: string | null): { className: string; text: string } {
+    // 如果任务已完成，直接返回完成状态
+    if (task.completed) {
+        return { className: 'completed', text: '已完成' };
+    }
+
+    if (!task.enabled) {
+        return { className: 'disabled', text: '已禁用' };
+    }
+    
+    if (!nextRunTime) {
+        return { className: 'error', text: '时间设置错误' };
+    }
+
+    const now = new Date().getTime();
+    const next = new Date(nextRunTime).getTime();
+    
+    if (task.lastStatus === 'failed') {
+        return { className: 'failed', text: '上次执行失败' };
+    }
+    
+    if (next < now) {
+        return { className: 'expired', text: '已过期' };
+    }
+
+    return { className: 'pending', text: '等待执行' };
+  }
+
+  // 排序任务
+  async sortTasks(sortBy: 'next' | 'added') {
+    const tasks = await window.electronAPI.getScheduleTasks();
+    
+    const validTasks = tasks.map(task => ({
+        ...task,
+        isOneTime: task.isOneTime || false,
+        createdAt: task.createdAt || new Date().toISOString()
+    }));
+
+    const sortedTasks = [...validTasks].sort((a, b) => {
+        if (sortBy === 'next') {
+            const nextA = this.getNextRunTime(a.cron);
+            const nextB = this.getNextRunTime(b.cron);
+            return (nextA ? new Date(nextA).getTime() : 0) - (nextB ? new Date(nextB).getTime() : 0);
+        } else {
+            return parseInt(a.id) - parseInt(b.id);
+        }
+    });
+
+    this.renderTasks(sortedTasks);
+  }
+
+  // 修改测试方法，添加更多日志
+  async testSendMessage() {
+    try {
+        console.log('开始测试发送消息...');
+
+        if (this.selectedRooms.size === 0) {
+            console.log('错误: 未选择任何群聊');
+            notification.show('请选择至少一个群聊', 'error');
+            return;
+        }
+        console.log('已选择的群聊:', Array.from(this.selectedRooms));
+
+        const message = this.scheduleMessageInput?.value.trim() || '';
+        if (!message) {
+            console.log('错误: 消息内容为空');
+            notification.show('请输入消息内容', 'error');
+            return;
+        }
+        console.log('待发送的消息:', message);
+
+        // 创建一个一分钟后执行的任务
+        const now = new Date();
+        const executeTime = new Date(now.getTime() + 60000); // 一分钟后
+        
+        console.log('当前时间:', now.toLocaleString());
+        console.log('计划执行时间:', executeTime.toLocaleString());
+
+        const task: ScheduleTask = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            roomNames: Array.from(this.selectedRooms),
+            message,
+            // 修改 cron 表达式生成方式
+            cron: `${executeTime.getMinutes()} ${executeTime.getHours()} * * *`,
+            enabled: true,
+            isOneTime: true,
+            createdAt: new Date().toISOString()
+        };
+
+        console.log('创建的任务:', {
+            id: task.id,
+            roomNames: task.roomNames,
+            cron: task.cron,
+            message: task.message,
+            executionTime: executeTime.toLocaleString()
+        });
+
+        // 接调用测试发送
+        const result = await window.electronAPI.testDirectSend(
+            Array.from(this.selectedRooms)[0],  // 取第一个群进行测试
+            message
+        );
+
+        if (result.success) {
+            notification.show('测试消息发送成功', 'success', 5000);
+        } else {
+            throw new Error(result.error || '发送失败');
+        }
+
+    } catch (error) {
+        console.error('测试发送消息失败:', error);
+        notification.show(error instanceof Error ? error.message : '测试失败', 'error', 5000);
     }
   }
 }

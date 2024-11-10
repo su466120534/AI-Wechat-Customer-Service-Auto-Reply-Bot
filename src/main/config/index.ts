@@ -4,19 +4,7 @@ import { app } from 'electron'
 import { logger } from '../utils/logger'
 import { AppError, ErrorCode } from '../../shared/types/errors'
 import { AitiwoService } from '../services/aitiwo'
-
-// 在文件开头添加 Config 接口定义
-interface Config {
-    aitiwoKey: string;
-    contactWhitelist: string[];
-    roomWhitelist: string[];
-    schedules: ScheduleTask[];
-    botStatus: {
-        isLoggedIn: boolean;
-        lastLoginTime?: string;
-        userName?: string;
-    };
-}
+import { Config, ScheduleTask } from '../../shared/types/config'
 
 class ConfigManager {
     private config: Config;
@@ -29,6 +17,8 @@ class ConfigManager {
             aitiwoKey: '',
             contactWhitelist: [],
             roomWhitelist: [],
+            botName: '',
+            autoReplyPrefix: '',
             schedules: [],
             botStatus: {
                 isLoggedIn: false
@@ -46,6 +36,8 @@ class ConfigManager {
                     aitiwoKey: loadedConfig.aitiwoKey || '',
                     contactWhitelist: loadedConfig.contactWhitelist || [],
                     roomWhitelist: loadedConfig.roomWhitelist || [],
+                    botName: loadedConfig.botName || '',
+                    autoReplyPrefix: loadedConfig.autoReplyPrefix || '',
                     schedules: loadedConfig.schedules || [],
                     botStatus: loadedConfig.botStatus || { isLoggedIn: false }
                 };
@@ -135,6 +127,11 @@ class ConfigManager {
         this.config.botStatus = {
             isLoggedIn: false
         };
+        this.saveConfig();
+    }
+
+    public setBotName(name: string) {
+        this.config.botName = name;
         this.saveConfig();
     }
 }

@@ -3,31 +3,34 @@ process.env.WECHATY_PUPPET = 'wechaty-puppet-wechat4u'
 import { app, BrowserWindow, ipcMain, Notification } from 'electron'
 import * as path from 'path'
 import axios from 'axios'
-import { Wechaty } from 'wechaty'
+import { Wechaty, Message, Contact, Room } from 'wechaty'
 import { autoUpdater } from 'electron-updater'
 import ConfigManager from './config'
 import { logger } from './utils/logger'
 import { updateLogger } from './utils/update-logger'
 import { scheduleManager } from './utils/scheduler'
-import { AppError, ErrorCode, NetworkError, BotError, ErrorRecoveryStrategy } from '../shared/types/errors'
+import { AppError, ErrorCode, ErrorRecoveryStrategy } from '../shared/types/errors'
 import QRCode from 'qrcode'
 import { errorRecoveryManager } from './utils/error-recovery'
 import { errorNotificationManager } from './utils/error-notification'
 import { errorMonitor } from './utils/error-monitor'
 import * as dotenv from 'dotenv';
-import { Message, Contact, Room } from 'wechaty';
-import { types } from 'wechaty-puppet';
+import { Puppet } from 'wechaty-puppet';
 import { AitiwoService } from './services/aitiwo';
 import { CronJob } from 'cron';
+import { Config } from '../shared/types/config';
+
+// 添加 Contact 类型扩展
+interface ExtendedContact extends Contact {
+    say(text: string): Promise<void | Message>;
+}
 
 // 修改 ExtendedWechaty 接口定义
 interface ExtendedWechaty extends Wechaty {
   isEnabled: boolean;
-  logonoff(): Promise<boolean>;
-  isLoggedIn?: boolean;
-  puppet?: {
+  puppet: {
     isLoggedIn: boolean;
-  };
+  } & Puppet;
   userSelf: () => Promise<Contact>;
   stop(): Promise<void>;
   on(event: 'scan', listener: (qrcode: string, status: number) => void): this;
@@ -40,9 +43,9 @@ interface ExtendedWechaty extends Wechaty {
 const wechaty = require('wechaty')
 const { WechatyBuilder } = wechaty
 const { ScanStatus } = require('wechaty-puppet')
-let botInstance: ExtendedWechaty | null = null;
+export let botInstance: ExtendedWechaty | null = null;
 let qrcodeWindow: BrowserWindow | null = null;
-let isStarting = false;  // 添加启动状态标志
+let isStarting = false;
 
 
 // 在文件顶部声明接口
@@ -284,7 +287,7 @@ function createWindow(): void {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        // 删任何现有的 CSP 头
+        // 删任���现有的 CSP 头
         'Content-Security-Policy': [''],
         // 添加新的 CSP 头
         'content-security-policy': [
@@ -306,7 +309,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
         
         // API Key 检查
         if (!config.aitiwoKey) {
-            logger.warn('Bot', 'API Key 未设置');
+            logger.warn('Bot', 'API Key 未置');
             mainWindow.webContents.send('key-message', {
                 type: 'warning',
                 message: '请先设置 API Key。您可以前往 qiye.aitiwo.com 创建机器人并获取 API Key。'
@@ -335,7 +338,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             .on('scan', async (qrcode: string, status: any) => {
                 logger.info('Bot', '收到扫码事件');
                 try {
-                    // 生成二维码图片
+                    // 生成维码图片
                     const qrcodeDataUrl = await QRCode.toDataURL(qrcode);
                     logger.info('Bot', '二维码图片生成成功');
 
@@ -348,11 +351,15 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             .on('login', async (user: any) => {
                 logger.info('Bot', '登录成功，开始处理登录事件', { userName: user.name() });
                 
-                // 确保关闭二维码窗口
-                if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
-                    logger.info('Bot', '正在关闭二维码窗口');
-                    qrcodeWindow.close();
-                    qrcodeWindow = null;
+                // 添加这段代码来关闭二维码窗口
+                try {
+                    if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
+                        logger.info('Bot', '正在关闭二维码窗口');
+                        qrcodeWindow.close();
+                        qrcodeWindow = null;
+                    }
+                } catch (error) {
+                    logger.error('Bot', '关闭二维码窗口失败', error);
                 }
 
                 // 更新配置中的登录状态
@@ -380,11 +387,11 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
                 });
 
                 // 设置机器人实例到调度管理器
-                scheduleManager.setBot(botInstance as Wechaty);
+                scheduleManager.setBot(botInstance as unknown as Wechaty);
 
                 logger.info('Bot', '登录事件处理完成，已发送所有通知');
             })
-            .on('message', async (message: any) => {
+            .on('message', async (message: Message) => {
                 try {
                     // 如果消息来自自己，忽略
                     if (message.self()) {
@@ -395,6 +402,10 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
                     const config = ConfigManager.getConfig();
                     const aiService = new AitiwoService(config.aitiwoKey);
 
+                    // 获取消息本
+                    const text = message.text();
+                    if (!text) return;
+
                     // 检查是否来自群聊
                     const room = message.room();
                     if (room) {
@@ -404,24 +415,119 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
                             return;
                         }
 
-                        // 获取消息文本
-                        const text = message.text();
-                        if (!text) return;
+                        // 检查是否 @ 了机器人
+                        const botName = config.botName;
+                        if (botName && !text.includes(`@${botName}`)) {
+                            return;  // 如果设置了机器人名称但消息中没有 @ 机器人，则忽略
+                        }
+
+                        // 移除 @ 部分，只留实际消息内容
+                        let actualMessage = botName ? text.replace(`@${botName}`, '').trim() : text;
+
+                        // 检查前缀匹配
+                        const prefix = config.autoReplyPrefix;
+                        if (prefix && !actualMessage.startsWith(prefix)) {
+                            return;  // 如果设置了前缀但消息不以前缀开头，则忽略
+                        }
+
+                        // 如果有前缀，移除前缀
+                        if (prefix) {
+                            actualMessage = actualMessage.substring(prefix.length).trim();
+                        }
 
                         logger.info('Bot', '收到群消息', {
                             room: topic,
-                            message: text
+                            message: actualMessage
+                        });
+
+                        // 记录收到的消息
+                        logger.info('AI', `收到消息`, {
+                            type: 'group_chat',
+                            from: topic,
+                            message: actualMessage,
+                            time: new Date().toLocaleString()
+                        });
+
+                        // 调用 AI 服前记录
+                        logger.info('AI', `开始处理消息`, {
+                            type: 'group_chat',
+                            from: topic,
+                            message: actualMessage,
+                            time: new Date().toLocaleString()
                         });
 
                         // 调用 AI 服务
-                        const reply = await aiService.chat(text);
+                        const reply = await aiService.chat(actualMessage);
                         
+                        // 记录 AI 回复
+                        logger.info('AI', `生成回复`, {
+                            type: 'group_chat',
+                            from: topic,
+                            originalMessage: actualMessage,
+                            reply: reply,
+                            time: new Date().toLocaleString()
+                        });
+
                         // 发送回复
                         await room.say(reply);
                         
                         logger.info('Bot', '已回复群消息', {
                             room: topic,
                             reply
+                        });
+
+                        // 记录发送成功
+                        logger.info('AI', `回复发送成功`, {
+                            type: 'group_chat',
+                            to: topic,
+                            reply: reply,
+                            time: new Date().toLocaleString()
+                        });
+                    } else {
+                        // 私聊消息处理
+                        const talker = message.talker();
+                        if (!config.contactWhitelist.includes(talker.name())) {
+                            return;
+                        }
+
+                        // 检查前缀匹配（私聊消息）
+                        const prefix = config.autoReplyPrefix;
+                        if (prefix && !text.startsWith(prefix)) {
+                            return;
+                        }
+
+                        // 如果有前缀，移除前缀
+                        const actualMessage = prefix ? text.substring(prefix.length).trim() : text;
+
+                        // 记录收到的消息
+                        logger.info('AI', `收到私聊消息`, {
+                            type: 'private_chat',
+                            from: talker.name(),
+                            message: actualMessage,
+                            time: new Date().toLocaleString()
+                        });
+
+                        // 调用 AI 服务并回复
+                        const reply = await aiService.chat(actualMessage);
+
+                        // 记录 AI 回复
+                        logger.info('AI', `生成私聊回复`, {
+                            type: 'private_chat',
+                            to: talker.name(),
+                            originalMessage: actualMessage,
+                            reply: reply,
+                            time: new Date().toLocaleString()
+                        });
+
+                        // 使用 Contact 的 say 方法发送回复
+                        await (talker as any).say(reply);
+
+                        // 记录发送成功
+                        logger.info('AI', `私聊回复发送成功`, {
+                            type: 'private_chat',
+                            to: talker.name(),
+                            reply: reply,
+                            time: new Date().toLocaleString()
                         });
                     }
                 } catch (error) {
@@ -561,7 +667,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 修改二维码窗口创建函数
 function createQRCodeWindow(qrcodeDataUrl: string) {
-    // 如果已存在窗口，先关闭
+    // 如果已存在窗口先关闭
     if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
         qrcodeWindow.close();
     }
@@ -628,7 +734,7 @@ function createQRCodeWindow(qrcodeDataUrl: string) {
             </head>
             <body>
                 <div class="container">
-                    <h3>请��用微信扫码登录</h3>
+                    <h3>请用微信扫码登录</h3>
                     <img src="${qrcodeDataUrl}" alt="微信登录二维码">
                     <p class="status">扫码后请在手机上确认登录</p>
                 </div>
@@ -696,13 +802,13 @@ app.on('window-all-closed', () => {
     }
 });
 
-// 修改状态检查函数
+// 修改状态查函数
 async function checkBotStatus(): Promise<boolean> {
     if (!botInstance) {
         return false;
     }
     try {
-        // 添加更详细的调试日志
+        // 添加更详细的调试志
         logger.info('Bot', '检查登录状态', {
             botInstance: !!botInstance,
             puppet: !!botInstance.puppet,
@@ -721,7 +827,7 @@ async function checkBotStatus(): Promise<boolean> {
             });
         }
 
-        logger.info('Bot', '登录状态检查结果:', { isLoggedIn });
+        logger.info('Bot', '登录态检查结果:', { isLoggedIn });
         return !!isLoggedIn;  // 确保返回布尔值
     } catch (error) {
         logger.error('Bot', '检查登录状态失败', error);
@@ -783,7 +889,7 @@ app.on('before-quit', async () => {
     }
 });
 
-// 添加窗口关闭事件处理
+// 添加窗口关闭事件理
 app.on('window-all-closed', () => {
     if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
         qrcodeWindow.close();
@@ -797,7 +903,7 @@ app.on('window-all-closed', () => {
 
 // 添加应用激活事件处理（macOS）
 app.on('activate', () => {
-    // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
+    // 在 macOS 上当点击 dock 图标并且没有其他窗口打开时，
     // 通常在应用程序中重新创建一个窗口。
     if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
@@ -826,7 +932,7 @@ async function migrateWhitelistConfig() {
             .split(',')
             .map(item => item.trim())
             .filter(item => {
-                // 过滤掉空值和特殊字符
+                // 滤掉值和特殊字符
                 const isValid = item && !/[<>:"/\\|?*]/.test(item);
                 if (!isValid && item) {
                     logger.warn('Config', `联系人白名单包含无效值: ${item}`);
@@ -841,7 +947,7 @@ async function migrateWhitelistConfig() {
                 // 过滤掉空值和特殊字符
                 const isValid = item && !/[<>:"/\\|?*]/.test(item);
                 if (!isValid && item) {
-                    logger.warn('Config', `群聊白名单包含无效值: ${item}`);
+                    logger.warn('Config', `聊白名单包含无效值: ${item}`);
                 }
                 return isValid;
             });
@@ -876,8 +982,8 @@ async function migrateWhitelistConfig() {
             logger.info('Config', '已存在白名单配置，跳过迁移');
         }
     } catch (error) {
-        logger.error('Config', '白名单配置迁移失败', error);
-        // 记录错误但不中断应用启动
+        logger.error('Config', '白名单配迁移失败', error);
+        // 记录误但不中断应用启动
         if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('config-migration-failed', {
                 error: error instanceof Error ? error.message : '配置迁移失败'
@@ -925,7 +1031,9 @@ const IPC_CHANNELS = {
     GET_SCHEDULE_TASKS: 'getScheduleTasks',
     ADD_SCHEDULE_TASK: 'addScheduleTask',
     TOGGLE_SCHEDULE_TASK: 'toggleScheduleTask',
-    DELETE_SCHEDULE_TASK: 'deleteScheduleTask'
+    DELETE_SCHEDULE_TASK: 'deleteScheduleTask',
+
+    'test-direct-send': 'test-direct-send'
 } as const;
 
 // 2. 集中定义所有 IPC 处理器
@@ -981,8 +1089,27 @@ const ipcHandlers = {
     },
 
     [IPC_CHANNELS.ADD_SCHEDULE_TASK]: async (event: any, task: any) => {
-        ConfigManager.addScheduleTask(task);
-        return { success: true };
+        try {
+            // 1. 保存到配置
+            ConfigManager.addScheduleTask(task);
+            
+            // 2. 通知 scheduleManager 创建新任务
+            scheduleManager.addTask(task);
+            
+            logger.info('Schedule', '新任务已创建', {
+                taskId: task.id,
+                roomNames: task.roomNames,
+                executionTime: task.cron
+            });
+            
+            return { success: true };
+        } catch (error) {
+            logger.error('Schedule', '创建任务失败', error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : '创建任务失败'
+            };
+        }
     },
 
     [IPC_CHANNELS.TOGGLE_SCHEDULE_TASK]: async (event: any, taskId: string, enabled: boolean) => {
@@ -993,6 +1120,18 @@ const ipcHandlers = {
     [IPC_CHANNELS.DELETE_SCHEDULE_TASK]: async (event: any, taskId: string) => {
         ConfigManager.deleteScheduleTask(taskId);
         return { success: true };
+    },
+
+    'test-direct-send': async (event: any, roomName: string, message: string) => {
+        try {
+            return await scheduleManager.testDirectSend(roomName, message);
+        } catch (error) {
+            logger.error('Bot', '测试发送失败', error);
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : '发送失败'
+            };
+        }
     }
 };
 
@@ -1036,12 +1175,12 @@ app.whenReady().then(async () => {
         // 设置自动更新
         setupAutoUpdater();
     } catch (error) {
-        logger.error('App', '应用启动失败', error);
+        logger.error('App', '用启动失败', error);
         app.quit();
     }
 });
 
-// 添加状态监控
+// 修改状态监控函数
 function startStatusMonitor() {
     if (!botInstance) {
         logger.error('Bot', '无法启动状态监控：机器人实例不存在');
@@ -1051,10 +1190,16 @@ function startStatusMonitor() {
     setInterval(async () => {
         try {
             if (botInstance) {
-                const isLoggedIn = await botInstance.logonoff();
+                // 使用 isLoggedIn 属性替代 logonoff() 方法
+                const isLoggedIn = botInstance.puppet?.isLoggedIn;
+                
+                logger.info('Bot', '检查登录状态', {
+                    isLoggedIn: isLoggedIn
+                });
+
                 if (!isLoggedIn) {
-                    logger.warn('Bot', '检测到登录状态异常，尝试重连');
-                    await reconnectBot();
+                    logger.warn('Bot', '检测到登录状态异常');
+                    // 暂时先不做重连,只记录状态
                 }
             }
         } catch (error) {

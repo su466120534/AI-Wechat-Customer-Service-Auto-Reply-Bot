@@ -2,13 +2,7 @@ import { notification } from '../components/notification';
 import { LoadingUI } from '../components/loading';
 import { AppError, ErrorCode, ConfigError } from '../../shared/types';
 import { keyMessages } from '../components/key-messages';
-
-interface Config {
-  aitiwoKey?: string;
-  contactWhitelist: string[];
-  roomWhitelist: string[];
-  schedules: ScheduleTask[];  // 添加定时任务数组
-}
+import { Config, ScheduleTask } from '../../shared/types/config';
 
 export class ConfigManager {
   private aitiwoKeyInput: HTMLInputElement;
@@ -16,19 +10,31 @@ export class ConfigManager {
   private roomWhitelistTextarea: HTMLTextAreaElement;
   private saveTimeout: NodeJS.Timeout | null = null;
   private config: Config = {
+    aitiwoKey: '',
     contactWhitelist: [],
     roomWhitelist: [],
-    schedules: []
+    schedules: [],
+    botName: '',
+    autoReplyPrefix: '',
+    botStatus: {
+      isLoggedIn: false
+    }
   };
+  private botNameInput: HTMLInputElement;
+  private autoReplyPrefixInput: HTMLInputElement;
 
   constructor() {
     this.aitiwoKeyInput = document.getElementById('aitiwoKey') as HTMLInputElement;
     this.contactWhitelistTextarea = document.getElementById('contactWhitelist') as HTMLTextAreaElement;
     this.roomWhitelistTextarea = document.getElementById('roomWhitelist') as HTMLTextAreaElement;
+    this.botNameInput = document.getElementById('botName') as HTMLInputElement;
+    this.autoReplyPrefixInput = document.getElementById('autoReplyPrefix') as HTMLInputElement;
 
     this.bindEvents();
     this.loadConfig();
     this.initHelpText();
+    this.botNameInput.addEventListener('change', () => this.handleBotNameChange());
+    this.autoReplyPrefixInput.addEventListener('change', () => this.handlePrefixChange());
   }
 
   private bindEvents() {
@@ -46,6 +52,8 @@ export class ConfigManager {
       this.contactWhitelistTextarea.value = config.contactWhitelist.join('\n');
       this.roomWhitelistTextarea.value = config.roomWhitelist.join('\n');
       this.aitiwoKeyInput.value = config.aitiwoKey || '';
+      this.botNameInput.value = config.botName || '';
+      this.autoReplyPrefixInput.value = config.autoReplyPrefix || '';
     } catch (error) {
       notification.show('加载配置失败', 'error');
     }
@@ -129,7 +137,7 @@ export class ConfigManager {
     try {
       const config = await window.electronAPI.getConfig();
       config.schedules = schedules;
-      await window.electronAPI.invoke('save-config', config);
+      await window.electronAPI.saveConfig(config);
     } catch (error) {
       console.error('Failed to save schedules:', error);
       throw error;
@@ -227,6 +235,26 @@ export class ConfigManager {
           document.addEventListener('click', closeTooltip);
         }, 0);
       });
+    }
+  }
+
+  private async handleBotNameChange() {
+    try {
+      const name = this.botNameInput.value.trim();
+      await window.electronAPI.saveBotName(name);
+      notification.show('机器人名称已保存', 'success');
+    } catch (error) {
+      notification.show('保存失败', 'error');
+    }
+  }
+
+  private async handlePrefixChange() {
+    try {
+      const prefix = this.autoReplyPrefixInput.value.trim();
+      await window.electronAPI.savePrefix(prefix);
+      notification.show('自动回复前缀已保存', 'success');
+    } catch (error) {
+      notification.show('保存失败', 'error');
     }
   }
 } 

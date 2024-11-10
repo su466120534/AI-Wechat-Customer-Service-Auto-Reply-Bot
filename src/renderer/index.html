@@ -50,6 +50,22 @@
 
         <div class="tab-content" id="whitelist">
             <div class="form-group">
+                <label>机器人名称:</label>
+                <input type="text" id="botName" placeholder="请输入机器人的微信名称">
+                <div class="form-help">
+                    <span class="help-icon">ℹ️</span>
+                    <span class="help-text">群聊中需要 @ 此名称才会触发回复；如留空，任何消息都将会触发回复。</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>自动回复前缀:</label>
+                <input type="text" id="autoReplyPrefix" placeholder="请输入触发自动回复的前缀">
+                <div class="form-help">
+                    <span class="help-icon">ℹ️</span>
+                    <span class="help-text">消息以此前缀开头时才会触发回复；如留空，所有消息都会触发回复。</span>
+                </div>
+            </div>
+            <div class="form-group">
                 <label>联系人白名单:</label>
                 <textarea id="contactWhitelist" placeholder="每行输入一个联系人"></textarea>
                 <div class="form-help">仅允许白名单中的联系人使用机器人</div>
