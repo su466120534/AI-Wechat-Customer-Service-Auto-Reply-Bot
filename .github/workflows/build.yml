@@ -20,52 +20,40 @@ jobs:
           node-version: '18.19.0'
           cache: 'yarn'
           
-      - name: Cache electron
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-cache-
-
-      - name: Cache electron-builder
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-builder-cache-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-cache-
-
       - name: Install dependencies
         run: |
-          yarn install --frozen-lockfile
-          yarn rebuild-native
+          yarn install --frozen-lockfile --verbose
+          yarn rebuild-native --verbose
         
       - name: Build
-        run: yarn build
+        run: |
+          echo "Starting TypeScript build..."
+          yarn build:ts --verbose
+          echo "Starting renderer build..."
+          yarn build:renderer --verbose
+          echo "Copying assets..."
+          yarn copy-assets --verbose
+          echo "Running verification..."
+          yarn verify --verbose
         env:
           NODE_ENV: production
+          DEBUG: electron-builder
         
       - name: Build Windows
-        run: yarn electron-builder --win --x64
+        run: yarn electron-builder --win --x64 --debug
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
+          DEBUG: electron-builder
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: build/*.exe
-          
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: build/*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+          path: |
+            build/*.exe
+            yarn-error.log
+            
   build-mac:
     runs-on: macos-latest
     steps:
@@ -77,48 +65,36 @@ jobs:
           node-version: '18.19.0'
           cache: 'yarn'
           
-      - name: Cache electron
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/electron
-          key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-cache-
-
-      - name: Cache electron-builder
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-builder-cache-${{ hashFiles('**/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-cache-
-
       - name: Install dependencies
         run: |
-          yarn install --frozen-lockfile
-          yarn rebuild-native
+          yarn install --frozen-lockfile --verbose
+          yarn rebuild-native --verbose
         
       - name: Build
-        run: yarn build
+        run: |
+          echo "Starting TypeScript build..."
+          yarn build:ts --verbose
+          echo "Starting renderer build..."
+          yarn build:renderer --verbose
+          echo "Copying assets..."
+          yarn copy-assets --verbose
+          echo "Running verification..."
+          yarn verify --verbose
         env:
           NODE_ENV: production
+          DEBUG: electron-builder
         
       - name: Build Mac
-        run: yarn electron-builder --mac
+        run: yarn electron-builder --mac --debug
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
+          DEBUG: electron-builder
           
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: build/*.dmg
-          
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: build/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: |
+            build/*.dmg
+            yarn-error.log
