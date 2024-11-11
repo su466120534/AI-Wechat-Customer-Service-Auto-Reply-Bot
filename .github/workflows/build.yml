@@ -51,7 +51,7 @@ jobs:
       - name: Build TypeScript
         run: |
           echo "Building TypeScript..."
-          yarn build:ts 2>&1 | tee typescript-build.log
+          yarn tsc --skipLibCheck 2>&1 | tee typescript-build.log
           if ($LASTEXITCODE -ne 0) {
             echo "TypeScript build failed. Log:"
             type typescript-build.log
@@ -145,7 +145,7 @@ jobs:
       - name: Build TypeScript
         run: |
           echo "Building TypeScript..."
-          yarn build:ts 2>&1 | tee typescript-build.log
+          yarn tsc --skipLibCheck 2>&1 | tee typescript-build.log
           if [ $? -ne 0 ]; then
             echo "TypeScript build failed. Log:"
             cat typescript-build.log

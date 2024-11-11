@@ -27,14 +27,13 @@
     "log4js": "^6.9.1",
     "node-schedule": "^2.1.1",
     "qrcode": "^1.5.3",
-    "wechaty": "^1.20.2",
-    "wechaty-puppet": "^1.20.2",
-    "wechaty-puppet-wechat4u": "^1.14.14",
+    "wechaty": "1.20.2",
+    "wechaty-puppet": "1.20.2",
+    "wechaty-puppet-wechat4u": "1.14.14",
     "redux": "^4.2.1",
     "redux-observable": "^2.0.0",
     "ducks": "^1.0.2",
     "wechaty-puppet-service": "^1.19.8",
-    "better-sqlite3": "^8.7.0",
     "brolog": "^1.14.2",
     "rxjs": "^7.8.1",
     "@swc/core": "^1.9.2"
@@ -77,11 +76,9 @@
     },
     "asar": true,
     "asarUnpack": [
-      "node_modules/wechaty-puppet-wechat4u/**/*",
       "node_modules/better-sqlite3/**/*",
       "node_modules/sqlite3/**/*",
-      "node_modules/node-gyp-build/**/*",
-      "node_modules/@swc/**/*"
+      "node_modules/node-gyp-build/**/*"
     ],
     "win": {
       "target": [
@@ -132,9 +129,10 @@
     ]
   },
   "resolutions": {
-    "redux": "^4.2.1",
-    "rxjs": "^7.8.1",
-    "@swc/core": "^1.9.2"
+    "wechaty": "1.20.2",
+    "wechaty-puppet": "1.20.2",
+    "wechaty-puppet-wechat4u": "1.14.14",
+    "better-sqlite3": "8.7.0"
   },
   "config": {
     "forge": {
