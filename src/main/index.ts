@@ -260,7 +260,7 @@ function handleWindowError(window: BrowserWindow) {
 }
 
 function createWindow(): void {
-  // 检查是否已经存在窗口
+  // 检查否已经存在窗口
   if (mainWindow) {
     // 如果窗口已存在，只需要显示它
     if (mainWindow.isMinimized()) mainWindow.restore();
@@ -281,12 +281,19 @@ function createWindow(): void {
 
   const indexPath = process.env.NODE_ENV === 'development'
     ? path.join(__dirname, '..', 'index.html')
-    : path.join(__dirname, 'index.html');
+    : path.join(__dirname, '..', 'index.html');
 
   logger.info('Window', `加载页面路径: ${indexPath}`);
-  mainWindow.loadFile(indexPath);
+  mainWindow.loadFile(indexPath).catch(err => {
+    logger.error('Window', '加载页面失败', err);
+    logger.error('Window', '路径信息', {
+      __dirname,
+      indexPath,
+      exists: fs.existsSync(indexPath)
+    });
+  });
 
-  if (process.env.NODE_ENV === 'development') {
+  if (!app.isPackaged) {
     mainWindow.webContents.openDevTools();
   }
 
@@ -690,7 +697,7 @@ process.on('uncaughtException', (error) => {
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Process', '未处理的 Promise 拒绝', { reason, promise })
+  logger.error('Process', '未处理 Promise 拒绝', { reason, promise })
 })
 
 // 修改二维码窗口创建函数
@@ -804,7 +811,7 @@ function updateQRCodeStatus(status: string) {
     }
 }
 
-// 显示重试按钮
+// 显重试按钮
 function showRetryButton() {
     if (qrcodeWindow && !qrcodeWindow.isDestroyed()) {
         qrcodeWindow.webContents.executeJavaScript(`
@@ -945,15 +952,6 @@ app.on('window-all-closed', () => {
     }
 });
 
-// 添加应用激活事件处理（macOS）
-app.on('activate', () => {
-    // 在 macOS 上当点击 dock 图标并且没有其他窗口打开时，
-    // 通常在应用程序中重新创建一个窗口。
-    if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-    }
-});
-
 // 添加件发送函数
 function sendBotEvent(event: string, data: any) {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1053,12 +1051,12 @@ async function callAIWithRetry(message: string, retryCount = 3) {
 function closeQRCodeWindow() {
     try {
         if (qrcodeWindow) {
-            // 先检查窗口是否已经被销毁
+            // 先检查窗口是已经被销毁
             if (!qrcodeWindow.isDestroyed()) {
                 // 先移除所有监听器，防止关闭事件触发其他操作
                 qrcodeWindow.removeAllListeners();
                 
-                // 如果窗口还在显示，则关闭它
+                // 如果口还在显示，则关闭它
                 if (qrcodeWindow.isVisible()) {
                     qrcodeWindow.close();
                 }
@@ -1270,7 +1268,7 @@ app.whenReady().then(async () => {
     }
 });
 
-// 在文件顶部添加日志转发设置
+// 在文件顶部添加日转发设置
 logger.on('newLog', (logItem: LogItem) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('new-log', logItem);

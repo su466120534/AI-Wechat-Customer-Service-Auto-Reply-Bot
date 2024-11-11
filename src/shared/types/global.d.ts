@@ -1,5 +1,6 @@
 import { Config, ScheduleTask, TaskHistory } from './config';
 import { LogItem } from '../utils/logger'
+import { BrowserWindow } from 'electron'
 
 declare global {
   interface Window {
@@ -60,6 +61,9 @@ declare global {
     };
     toggleTask: (taskId: string, enabled: boolean) => Promise<void>;
     deleteTask: (taskId: string) => Promise<void>;
+  }
+  interface MainWindow extends BrowserWindow {
+    // 添加你的自定义属性
   }
 }
 

@@ -2,27 +2,33 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "CommonJS",
-    "moduleResolution": "node",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
+    "lib": ["ES2020", "DOM"],
+    "declaration": true,
+    "sourceMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "sourceMap": true,
+    "strict": true,
+    "moduleResolution": "node",
+    "baseUrl": "src",
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
+    "allowJs": true,
+    "checkJs": false,
     "paths": {
-      "*": ["./node_modules/*"]
+      "*": ["*", "src/*"]
     },
     "typeRoots": [
       "./node_modules/@types",
-      "./src/types"
+      "./src/shared/types"
     ],
-    "lib": [
-      "DOM",
-      "DOM.Iterable",
-      "ESNext"
+    "types": [
+      "node",
+      "electron",
+      "jest"
     ]
   },
   "include": [
