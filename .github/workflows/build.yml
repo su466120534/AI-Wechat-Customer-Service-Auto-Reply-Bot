@@ -32,13 +32,18 @@ jobs:
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          rm -f yarn.lock
-          yarn install --verbose 2>&1 | tee yarn-install.log
-          if ($LASTEXITCODE -ne 0) {
+          yarn install --verbose 2>&1 | tee yarn-install.log || {
             echo "Yarn install failed. Log:"
             type yarn-install.log
             exit 1
           }
+          
+      - name: Install build tools
+        run: |
+          npm install -g typescript
+          npm install -g electron-builder
+          npm install -g esbuild
+          yarn add fs-extra --dev
         
       - name: Build TypeScript
         run: |
@@ -118,33 +123,21 @@ jobs:
           node-version: '18.19.0'
           cache: 'yarn'
           
-      - name: Show environment info
+      - name: Install dependencies
         run: |
-          node -v
-          yarn -v
-          echo "Current directory:"
-          pwd
-          ls -la
+          echo "Installing dependencies..."
+          yarn install --verbose 2>&1 | tee yarn-install.log || {
+            echo "Yarn install failed. Log:"
+            cat yarn-install.log
+            exit 1
+          }
           
-      - name: Install global dependencies
+      - name: Install build tools
         run: |
           npm install -g typescript
           npm install -g electron-builder
           npm install -g esbuild
-          
-      - name: Install dependencies
-        run: |
-          echo "Installing dependencies..."
-          rm -f yarn.lock
-          # 确保安装 devDependencies
-          yarn install --verbose --production=false 2>&1 | tee yarn-install.log
-          # 单独安装 fs-extra
           yarn add fs-extra --dev
-          if [ $? -ne 0 ]; then
-            echo "Yarn install failed. Log:"
-            cat yarn-install.log
-            exit 1
-          fi
         
       - name: Build TypeScript
         run: |
@@ -207,7 +200,11 @@ jobs:
         with:
           name: mac-logs
           path: |
-            *.log
+            yarn-install.log
+            typescript-build.log
+            renderer-build.log
+            copy-assets.log
+            electron-builder.log
             
       - name: Upload build artifacts
         if: success()
@@ -221,3 +218,8 @@ jobs:
         run: |
           echo "Build directory contents:"
           ls -la build/
+
+      - name: Prepare build directory
+        run: |
+          mkdir -p build
+          mkdir -p dist
