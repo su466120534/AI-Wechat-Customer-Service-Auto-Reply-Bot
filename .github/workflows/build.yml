@@ -42,10 +42,11 @@ jobs:
           npm install -g electron-builder
           npm install -g esbuild
           
-      - name: Rebuild native modules
+      - name: Rebuild native modules (Windows)
+        if: runner.os == 'Windows'
         run: |
           echo "Rebuilding native modules..."
-          node node_modules/.bin/electron-rebuild -f -w better-sqlite3,sqlite3 2>&1 | tee rebuild.log
+          npx @electron/rebuild -f -w better-sqlite3,sqlite3 2>&1 | tee rebuild.log
         
       - name: Build TypeScript
         run: |
@@ -224,3 +225,9 @@ jobs:
           mkdir -p build
           mkdir -p dist
           mkdir -p logs
+
+      - name: Rebuild native modules (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          echo "Rebuilding native modules..."
+          npx @electron/rebuild -f -w better-sqlite3,sqlite3 2>&1 | tee rebuild.log
