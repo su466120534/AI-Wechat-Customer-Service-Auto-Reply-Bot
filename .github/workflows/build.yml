@@ -32,7 +32,8 @@ jobs:
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          yarn install --frozen-lockfile --verbose 2>&1 | tee yarn-install.log
+          rm -f yarn.lock
+          yarn install --verbose 2>&1 | tee yarn-install.log
           if ($LASTEXITCODE -ne 0) {
             echo "Yarn install failed. Log:"
             type yarn-install.log
@@ -101,6 +102,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install setuptools wheel distutils
+          
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -115,10 +126,20 @@ jobs:
           pwd
           ls -la
           
+      - name: Install global dependencies
+        run: |
+          npm install -g typescript
+          npm install -g electron-builder
+          npm install -g esbuild
+          
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          yarn install --frozen-lockfile --verbose 2>&1 | tee yarn-install.log
+          rm -f yarn.lock
+          # 确保安装 devDependencies
+          yarn install --verbose --production=false 2>&1 | tee yarn-install.log
+          # 单独安装 fs-extra
+          yarn add fs-extra --dev
           if [ $? -ne 0 ]; then
             echo "Yarn install failed. Log:"
             cat yarn-install.log
@@ -158,6 +179,18 @@ jobs:
       - name: Build Mac
         run: |
           echo "Building Mac package..."
+          mkdir -p build/entitlements
+          echo '<?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+            <dict>
+              <key>com.apple.security.cs.allow-jit</key>
+              <true/>
+              <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+              <true/>
+            </dict>
+          </plist>' > build/entitlements.mac.plist
+          
           yarn electron-builder --mac 2>&1 | tee electron-builder.log
           if [ $? -ne 0 ]; then
             echo "Electron builder failed. Log:"
@@ -166,6 +199,7 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           
       - name: Upload logs
         if: always()
@@ -182,12 +216,8 @@ jobs:
           name: mac-build
           path: build/*.dmg
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          
-      - name: Install Python dependencies
+      - name: List build directory
+        if: always()
         run: |
-          python -m pip install --upgrade pip
-          pip install setuptools wheel
+          echo "Build directory contents:"
+          ls -la build/

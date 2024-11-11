@@ -108,10 +108,12 @@
     "beforeBuild": ["yarn rebuild-native"],
     "afterSign": "scripts/notarize.js",
     "mac": {
+      "target": ["dmg", "zip"],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist"
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "repository": {
