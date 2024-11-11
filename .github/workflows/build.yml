@@ -21,7 +21,7 @@ jobs:
           cache: 'yarn'
           
       - name: Cache electron
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/electron
           key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package.json') }}
@@ -29,7 +29,7 @@ jobs:
             ${{ runner.os }}-electron-cache-
 
       - name: Cache electron-builder
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.cache/electron-builder
           key: ${{ runner.os }}-electron-builder-cache-${{ hashFiles('**/package.json') }}
@@ -37,18 +37,23 @@ jobs:
             ${{ runner.os }}-electron-builder-cache-
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: |
+          yarn install --frozen-lockfile
+          yarn rebuild-native
         
       - name: Build
         run: yarn build
+        env:
+          NODE_ENV: production
         
       - name: Build Windows
         run: yarn electron-builder --win --x64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_ENV: production
           
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: build/*.exe
@@ -73,7 +78,7 @@ jobs:
           cache: 'yarn'
           
       - name: Cache electron
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/Library/Caches/electron
           key: ${{ runner.os }}-electron-cache-${{ hashFiles('**/package.json') }}
@@ -81,7 +86,7 @@ jobs:
             ${{ runner.os }}-electron-cache-
 
       - name: Cache electron-builder
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/Library/Caches/electron-builder
           key: ${{ runner.os }}-electron-builder-cache-${{ hashFiles('**/package.json') }}
@@ -89,18 +94,23 @@ jobs:
             ${{ runner.os }}-electron-builder-cache-
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: |
+          yarn install --frozen-lockfile
+          yarn rebuild-native
         
       - name: Build
         run: yarn build
+        env:
+          NODE_ENV: production
         
       - name: Build Mac
         run: yarn electron-builder --mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_ENV: production
           
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: mac-build
           path: build/*.dmg
