@@ -32,18 +32,20 @@ jobs:
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          yarn install --verbose 2>&1 | tee yarn-install.log || {
-            echo "Yarn install failed. Log:"
-            type yarn-install.log
-            exit 1
-          }
+          yarn install --verbose 2>&1 | tee yarn-install.log
+          yarn add -D @electron/rebuild --verbose 2>&1 | tee -a yarn-install.log
+          yarn add fs-extra --dev --verbose 2>&1 | tee -a yarn-install.log
           
       - name: Install build tools
         run: |
           npm install -g typescript
           npm install -g electron-builder
           npm install -g esbuild
-          yarn add fs-extra --dev
+          
+      - name: Rebuild native modules
+        run: |
+          echo "Rebuilding native modules..."
+          node node_modules/.bin/electron-rebuild -f -w better-sqlite3,sqlite3 2>&1 | tee rebuild.log
         
       - name: Build TypeScript
         run: |
@@ -200,11 +202,9 @@ jobs:
         with:
           name: mac-logs
           path: |
-            yarn-install.log
-            typescript-build.log
-            renderer-build.log
-            copy-assets.log
-            electron-builder.log
+            ./*.log
+            ./build/*.log
+            ./dist/*.log
             
       - name: Upload build artifacts
         if: success()
@@ -223,3 +223,4 @@ jobs:
         run: |
           mkdir -p build
           mkdir -p dist
+          mkdir -p logs

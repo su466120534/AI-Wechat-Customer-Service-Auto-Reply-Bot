@@ -15,7 +15,7 @@
     "verify": "node scripts/verify-build.js --verbose",
     "build:win": "yarn build && /Applications/Docker.app/Contents/Resources/bin/docker run --rm -v ${PWD}:/project -v ${PWD##*/}-node-modules:/project/node_modules -v ~/.electron:/root/.electron electronuserland/builder:wine /bin/bash -c \"yarn install && yarn electron-rebuild && yarn electron-builder install-app-deps && yarn electron-builder --win --x64\"",
     "postinstall": "electron-builder install-app-deps && yarn rebuild-native",
-    "rebuild-native": "@electron/rebuild -f -w better-sqlite3,sqlite3",
+    "rebuild-native": "node node_modules/.bin/electron-rebuild -f -w better-sqlite3,sqlite3",
     "build:mac": "yarn build && electron-builder --mac",
     "build:linux": "yarn build && electron-builder --linux"
   },
@@ -35,7 +35,7 @@
     "redux-observable": "^2.0.0",
     "ducks": "^1.0.2",
     "wechaty-puppet-service": "^1.19.8",
-    "better-sqlite3": "^8.0.0",
+    "better-sqlite3": "^8.7.0",
     "brolog": "^1.14.2",
     "rxjs": "^7.8.1",
     "@swc/core": "^1.9.2"
