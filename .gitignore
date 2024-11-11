@@ -1,11 +1,10 @@
 dist/
 build/
-node_modules
+node_modules/
 WechatEveryDay.memory-card.json
 .env
 test.js
 package-lock.json
-yarn.lock
 Chromium.app
 
 .DS_Store
