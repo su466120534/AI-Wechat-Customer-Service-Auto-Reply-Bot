@@ -20,40 +20,79 @@ jobs:
           node-version: '18.19.0'
           cache: 'yarn'
           
+      - name: Show environment info
+        run: |
+          node -v
+          yarn -v
+          echo "Current directory:"
+          pwd
+          echo "Directory contents:"
+          dir
+          
       - name: Install dependencies
         run: |
-          yarn install --frozen-lockfile --verbose
-          yarn rebuild-native --verbose
+          echo "Installing dependencies..."
+          yarn install --frozen-lockfile --verbose || (echo "Yarn install failed" && exit 1)
+          echo "Running rebuild-native..."
+          yarn rebuild-native --verbose || (echo "Rebuild native failed" && exit 1)
+        continue-on-error: true
+        
+      - name: Show node_modules content
+        run: |
+          echo "node_modules contents:"
+          dir node_modules
         
       - name: Build
         run: |
-          echo "Starting TypeScript build..."
-          yarn build:ts --verbose
-          echo "Starting renderer build..."
-          yarn build:renderer --verbose
+          echo "Starting build process..."
+          echo "Cleaning..."
+          yarn clean || (echo "Clean failed" && exit 1)
+          echo "Building TypeScript..."
+          yarn build:ts || (echo "TypeScript build failed" && type yarn-error.log && exit 1)
+          echo "Building renderer..."
+          yarn build:renderer || (echo "Renderer build failed" && exit 1)
           echo "Copying assets..."
-          yarn copy-assets --verbose
-          echo "Running verification..."
-          yarn verify --verbose
+          yarn copy-assets || (echo "Copy assets failed" && exit 1)
+          echo "Verifying build..."
+          yarn verify || (echo "Verify failed" && exit 1)
         env:
           NODE_ENV: production
-          DEBUG: electron-builder
+          DEBUG: "electron-builder,electron-rebuild,*"
+        continue-on-error: true
+        
+      - name: Check dist directory
+        run: |
+          echo "Checking dist directory..."
+          dir dist || echo "dist directory not found"
         
       - name: Build Windows
-        run: yarn electron-builder --win --x64 --debug
+        run: |
+          echo "Starting electron-builder..."
+          yarn electron-builder --win --x64 --debug || (echo "Electron builder failed" && type yarn-error.log && exit 1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
-          DEBUG: electron-builder
+          DEBUG: "electron-builder,electron-rebuild,*"
+        continue-on-error: true
           
-      - name: Upload artifacts
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs
+          path: |
+            yarn-error.log
+            npm-debug.log
+            .yarn/build-state.yml
+            .yarn/install-state.gz
+            
+      - name: Upload build artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: |
-            build/*.exe
-            yarn-error.log
-            
+          path: build/*.exe
+
   build-mac:
     runs-on: macos-latest
     steps:
@@ -65,36 +104,75 @@ jobs:
           node-version: '18.19.0'
           cache: 'yarn'
           
+      - name: Show environment info
+        run: |
+          node -v
+          yarn -v
+          echo "Current directory:"
+          pwd
+          echo "Directory contents:"
+          ls -la
+          
       - name: Install dependencies
         run: |
-          yarn install --frozen-lockfile --verbose
-          yarn rebuild-native --verbose
+          echo "Installing dependencies..."
+          yarn install --frozen-lockfile --verbose || (echo "Yarn install failed" && exit 1)
+          echo "Running rebuild-native..."
+          yarn rebuild-native --verbose || (echo "Rebuild native failed" && exit 1)
+        continue-on-error: true
+        
+      - name: Show node_modules content
+        run: |
+          echo "node_modules contents:"
+          ls -la node_modules
         
       - name: Build
         run: |
-          echo "Starting TypeScript build..."
-          yarn build:ts --verbose
-          echo "Starting renderer build..."
-          yarn build:renderer --verbose
+          echo "Starting build process..."
+          echo "Cleaning..."
+          yarn clean || (echo "Clean failed" && exit 1)
+          echo "Building TypeScript..."
+          yarn build:ts || (echo "TypeScript build failed" && cat yarn-error.log && exit 1)
+          echo "Building renderer..."
+          yarn build:renderer || (echo "Renderer build failed" && exit 1)
           echo "Copying assets..."
-          yarn copy-assets --verbose
-          echo "Running verification..."
-          yarn verify --verbose
+          yarn copy-assets || (echo "Copy assets failed" && exit 1)
+          echo "Verifying build..."
+          yarn verify || (echo "Verify failed" && exit 1)
         env:
           NODE_ENV: production
-          DEBUG: electron-builder
+          DEBUG: "electron-builder,electron-rebuild,*"
+        continue-on-error: true
+        
+      - name: Check dist directory
+        run: |
+          echo "Checking dist directory..."
+          ls -la dist || echo "dist directory not found"
         
       - name: Build Mac
-        run: yarn electron-builder --mac --debug
+        run: |
+          echo "Starting electron-builder..."
+          yarn electron-builder --mac --debug || (echo "Electron builder failed" && cat yarn-error.log && exit 1)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_ENV: production
-          DEBUG: electron-builder
+          DEBUG: "electron-builder,electron-rebuild,*"
+        continue-on-error: true
           
-      - name: Upload artifacts
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-logs
+          path: |
+            yarn-error.log
+            npm-debug.log
+            .yarn/build-state.yml
+            .yarn/install-state.gz
+            
+      - name: Upload build artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: |
-            build/*.dmg
-            yarn-error.log
+          path: build/*.dmg
