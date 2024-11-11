@@ -32,48 +32,54 @@ jobs:
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          yarn install --frozen-lockfile --verbose || (echo "Yarn install failed" && exit 1)
-          echo "Running rebuild-native..."
-          yarn rebuild-native --verbose || (echo "Rebuild native failed" && exit 1)
-        continue-on-error: true
+          yarn install --frozen-lockfile --verbose 2>&1 | tee yarn-install.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "Yarn install failed. Log:"
+            type yarn-install.log
+            exit 1
+          }
         
-      - name: Show node_modules content
+      - name: Build TypeScript
         run: |
-          echo "node_modules contents:"
-          dir node_modules
-        
-      - name: Build
-        run: |
-          echo "Starting build process..."
-          echo "Cleaning..."
-          yarn clean || (echo "Clean failed" && exit 1)
           echo "Building TypeScript..."
-          yarn build:ts || (echo "TypeScript build failed" && type yarn-error.log && exit 1)
-          echo "Building renderer..."
-          yarn build:renderer || (echo "Renderer build failed" && exit 1)
-          echo "Copying assets..."
-          yarn copy-assets || (echo "Copy assets failed" && exit 1)
-          echo "Verifying build..."
-          yarn verify || (echo "Verify failed" && exit 1)
-        env:
-          NODE_ENV: production
-          DEBUG: "electron-builder,electron-rebuild,*"
-        continue-on-error: true
+          yarn build:ts 2>&1 | tee typescript-build.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "TypeScript build failed. Log:"
+            type typescript-build.log
+            exit 1
+          }
         
-      - name: Check dist directory
+      - name: Build Renderer
         run: |
-          echo "Checking dist directory..."
-          dir dist || echo "dist directory not found"
+          echo "Building renderer..."
+          yarn build:renderer 2>&1 | tee renderer-build.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "Renderer build failed. Log:"
+            type renderer-build.log
+            exit 1
+          }
+        
+      - name: Copy Assets
+        run: |
+          echo "Copying assets..."
+          yarn copy-assets 2>&1 | tee copy-assets.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "Copy assets failed. Log:"
+            type copy-assets.log
+            exit 1
+          }
         
       - name: Build Windows
         run: |
-          echo "Starting electron-builder..."
-          yarn electron-builder --win --x64 --debug || (echo "Electron builder failed" && type yarn-error.log && exit 1)
+          echo "Building Windows package..."
+          yarn electron-builder --win --x64 2>&1 | tee electron-builder.log
+          if ($LASTEXITCODE -ne 0) {
+            echo "Electron builder failed. Log:"
+            type electron-builder.log
+            exit 1
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_ENV: production
-          DEBUG: "electron-builder,electron-rebuild,*"
-        continue-on-error: true
           
       - name: Upload logs
         if: always()
@@ -81,10 +87,7 @@ jobs:
         with:
           name: windows-logs
           path: |
-            yarn-error.log
-            npm-debug.log
-            .yarn/build-state.yml
-            .yarn/install-state.gz
+            *.log
             
       - name: Upload build artifacts
         if: success()
@@ -110,54 +113,59 @@ jobs:
           yarn -v
           echo "Current directory:"
           pwd
-          echo "Directory contents:"
           ls -la
           
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
-          yarn install --frozen-lockfile --verbose || (echo "Yarn install failed" && exit 1)
-          echo "Running rebuild-native..."
-          yarn rebuild-native --verbose || (echo "Rebuild native failed" && exit 1)
-        continue-on-error: true
+          yarn install --frozen-lockfile --verbose 2>&1 | tee yarn-install.log
+          if [ $? -ne 0 ]; then
+            echo "Yarn install failed. Log:"
+            cat yarn-install.log
+            exit 1
+          fi
         
-      - name: Show node_modules content
+      - name: Build TypeScript
         run: |
-          echo "node_modules contents:"
-          ls -la node_modules
-        
-      - name: Build
-        run: |
-          echo "Starting build process..."
-          echo "Cleaning..."
-          yarn clean || (echo "Clean failed" && exit 1)
           echo "Building TypeScript..."
-          yarn build:ts || (echo "TypeScript build failed" && cat yarn-error.log && exit 1)
-          echo "Building renderer..."
-          yarn build:renderer || (echo "Renderer build failed" && exit 1)
-          echo "Copying assets..."
-          yarn copy-assets || (echo "Copy assets failed" && exit 1)
-          echo "Verifying build..."
-          yarn verify || (echo "Verify failed" && exit 1)
-        env:
-          NODE_ENV: production
-          DEBUG: "electron-builder,electron-rebuild,*"
-        continue-on-error: true
+          yarn build:ts 2>&1 | tee typescript-build.log
+          if [ $? -ne 0 ]; then
+            echo "TypeScript build failed. Log:"
+            cat typescript-build.log
+            exit 1
+          fi
         
-      - name: Check dist directory
+      - name: Build Renderer
         run: |
-          echo "Checking dist directory..."
-          ls -la dist || echo "dist directory not found"
+          echo "Building renderer..."
+          yarn build:renderer 2>&1 | tee renderer-build.log
+          if [ $? -ne 0 ]; then
+            echo "Renderer build failed. Log:"
+            cat renderer-build.log
+            exit 1
+          fi
+        
+      - name: Copy Assets
+        run: |
+          echo "Copying assets..."
+          yarn copy-assets 2>&1 | tee copy-assets.log
+          if [ $? -ne 0 ]; then
+            echo "Copy assets failed. Log:"
+            cat copy-assets.log
+            exit 1
+          fi
         
       - name: Build Mac
         run: |
-          echo "Starting electron-builder..."
-          yarn electron-builder --mac --debug || (echo "Electron builder failed" && cat yarn-error.log && exit 1)
+          echo "Building Mac package..."
+          yarn electron-builder --mac 2>&1 | tee electron-builder.log
+          if [ $? -ne 0 ]; then
+            echo "Electron builder failed. Log:"
+            cat electron-builder.log
+            exit 1
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_ENV: production
-          DEBUG: "electron-builder,electron-rebuild,*"
-        continue-on-error: true
           
       - name: Upload logs
         if: always()
@@ -165,10 +173,7 @@ jobs:
         with:
           name: mac-logs
           path: |
-            yarn-error.log
-            npm-debug.log
-            .yarn/build-state.yml
-            .yarn/install-state.gz
+            *.log
             
       - name: Upload build artifacts
         if: success()
