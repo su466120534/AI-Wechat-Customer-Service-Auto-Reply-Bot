@@ -29,24 +29,21 @@ jobs:
           echo "Directory contents:"
           dir
           
+      - name: Prepare directories
+        run: |
+          mkdir -p build
+          mkdir -p dist
+          mkdir -p logs
+          
       - name: Install dependencies
         run: |
           echo "Installing dependencies..."
           yarn install --verbose 2>&1 | tee yarn-install.log
-          yarn add -D @electron/rebuild --verbose 2>&1 | tee -a yarn-install.log
-          yarn add fs-extra --dev --verbose 2>&1 | tee -a yarn-install.log
           
-      - name: Install build tools
-        run: |
-          npm install -g typescript
-          npm install -g electron-builder
-          npm install -g esbuild
-          
-      - name: Rebuild native modules (Windows)
-        if: runner.os == 'Windows'
+      - name: Rebuild native modules
         run: |
           echo "Rebuilding native modules..."
-          npx @electron/rebuild -f -w better-sqlite3,sqlite3 2>&1 | tee rebuild.log
+          yarn rebuild 2>&1 | tee rebuild.log
         
       - name: Build TypeScript
         run: |
@@ -81,6 +78,7 @@ jobs:
       - name: Build Windows
         run: |
           echo "Building Windows package..."
+          yarn postinstall
           yarn electron-builder --win --x64 2>&1 | tee electron-builder.log
           if ($LASTEXITCODE -ne 0) {
             echo "Electron builder failed. Log:"

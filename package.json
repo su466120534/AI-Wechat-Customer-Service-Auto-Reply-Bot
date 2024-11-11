@@ -10,39 +10,25 @@
     "start": "cross-env NODE_ENV=production electron .",
     "build:ts": "tsc",
     "build:renderer": "esbuild dist/renderer/index.js --bundle --outfile=dist/renderer.bundle.js --platform=browser --format=iife --external:electron --external:path --external:fs --external:util --external:log4js --external:node-schedule",
-    "build": "yarn clean && yarn build:ts && yarn build:renderer && yarn copy-assets && yarn verify",
+    "build": "yarn clean && yarn build:ts && yarn build:renderer && yarn copy-assets && yarn verify && yarn rebuild",
     "copy-assets": "node scripts/copy-assets.js",
     "verify": "node scripts/verify-build.js --verbose",
     "build:win": "yarn build && /Applications/Docker.app/Contents/Resources/bin/docker run --rm -v ${PWD}:/project -v ${PWD##*/}-node-modules:/project/node_modules -v ~/.electron:/root/.electron electronuserland/builder:wine /bin/bash -c \"yarn install && yarn electron-rebuild && yarn electron-builder install-app-deps && yarn electron-builder --win --x64\"",
-    "postinstall": "electron-builder install-app-deps",
-    "build:mac": "yarn build && electron-builder --mac",
-    "build:linux": "yarn build && electron-builder --linux"
+    "rebuild": "npx @electron/rebuild -f -w better-sqlite3,sqlite3"
   },
   "dependencies": {
-    "archiver": "^5.3.1",
-    "axios": "^1.6.8",
-    "cron": "^3.1.9",
-    "dotenv": "^16.0.0",
     "electron-updater": "^6.1.7",
     "log4js": "^6.9.1",
     "node-schedule": "^2.1.1",
     "qrcode": "^1.5.3",
     "wechaty": "1.20.2",
     "wechaty-puppet": "1.20.2",
-    "wechaty-puppet-wechat4u": "1.14.14",
-    "redux": "^4.2.1",
-    "redux-observable": "^2.0.0",
-    "ducks": "^1.0.2",
-    "wechaty-puppet-service": "^1.19.8",
-    "brolog": "^1.14.2",
-    "rxjs": "^7.8.1",
-    "@swc/core": "^1.9.2"
+    "wechaty-puppet-wechat4u": "1.14.14"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
     "@jest/globals": "^29.7.0",
     "@swc/core": "^1.9.2",
-    "@types/archiver": "^5.3.4",
     "@types/electron": "^1.6.10",
     "@types/jest": "^29.5.12",
     "@types/log4js": "^2.3.5",
@@ -61,7 +47,8 @@
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.1",
     "tsc-watch": "^6.0.4",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "better-sqlite3": "^8.7.0"
   },
   "build": {
     "appId": "com.aitiwo.wechat.bot",
@@ -77,9 +64,11 @@
     "asar": true,
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
-      "node_modules/sqlite3/**/*",
-      "node_modules/node-gyp-build/**/*"
+      "node_modules/sqlite3/**/*"
     ],
+    "npmRebuild": false,
+    "nodeVersion": "18.19.0",
+    "buildDependenciesFromSource": true,
     "win": {
       "target": [
         {
@@ -91,25 +80,12 @@
       ],
       "icon": "assets/icon.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "artifactName": "${productName}-Setup-${version}.${ext}"
-    },
-    "npmRebuild": true,
-    "nodeVersion": "18.19.0",
-    "buildDependenciesFromSource": true,
-    "beforeBuild": ["npx @electron/rebuild -f -w better-sqlite3,sqlite3"],
-    "afterSign": "scripts/notarize.js",
     "mac": {
       "target": ["dmg", "zip"],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.plist",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "entitlementsInherit": "build/entitlements.mac.plist"
     }
   },
   "repository": {
