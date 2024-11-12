@@ -37,10 +37,14 @@
 ## 快速开始
 
 1. 下载安装包：
-   - Windows: [下载 .exe](https://github.com/your-repo/releases)
-   - Mac: [下载 .dmg](https://github.com/your-repo/releases)
+   - Windows: [百度网盘下载](https://pan.baidu.com/s/151G_jawmJV7wo-f71ckP0Q) 提取码: `xzup`
+   - Mac: [百度网盘下载](https://pan.baidu.com/s/1FvYIm9GMDn1o2JAAg_VHKQ) 提取码: `7y5z`
 
-2. 安装并运行程序
+   
+
+2. 安装并运行程序：
+   - Windows用户：下载后双击 .exe 文件进行安装
+   - Mac用户：下载后双击 .dmg 文件进行安装
 
 3. 配置 API Key：
 
