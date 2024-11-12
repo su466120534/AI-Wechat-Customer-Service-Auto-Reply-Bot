@@ -12,7 +12,7 @@ async function testAitiwoChat() {
       url: 'https://qiye.aitiwo.com/api/v1/chat/completions',
       headers: {
         Accept: 'application/json',
-        Authorization: 'api-97120b90ac5014817e281cc2e254f5d819Tin',
+        Authorization: 'api-a8eb627a0d2863dcd9ef2258adf8c93dAJ3Oh',
         'Content-Type': 'application/json',
         'User-Agent': 'Mozilla/5.0',
       },

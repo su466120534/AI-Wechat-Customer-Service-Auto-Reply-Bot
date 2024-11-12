@@ -39,7 +39,17 @@ export class MessageHandler {
         await this.handlePrivateMessage(contact, text);
       }
     } catch (error) {
-      logger.error('Bot', '处理消息失败', error);
+      logger.error('Bot', '处理消息失败', {
+        error: error instanceof Error ? error.message : String(error),
+        messageType: (msg as any).type?.() || 'unknown',
+        messageText: msg.text().slice(0, 100), // 只记录前100个字符
+        sender: (await msg.talker().name()) || '未知发送者'
+      });
+      
+      // 重试机制
+      if (error instanceof AppError && error.code === ErrorCode.BOT_MESSAGE_FAILED) {
+        await this.retryMessageHandling(msg);
+      }
     }
   }
 
@@ -80,7 +90,7 @@ export class MessageHandler {
       await MessageSplitter.splitAndSend(fullResponse, room);
 
     } catch (error) {
-      logger.error('Bot', '处理群消��失败', error);
+      logger.error('Bot', '处理群消息失败', error);
       if (error instanceof AppError) {
         throw error;
       }
@@ -136,6 +146,23 @@ export class MessageHandler {
     } catch (error) {
       logger.error('Bot', '提取问题失败', error);
       return message.text().trim();
+    }
+  }
+
+  private async retryMessageHandling(msg: Message, retryCount = 0): Promise<void> {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 3000; // 3秒
+    
+    if (retryCount >= MAX_RETRIES) {
+      logger.error('Bot', '消息处理重试次数已达上限');
+      return;
+    }
+
+    try {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      await this.handleMessage(msg);
+    } catch (error) {
+      await this.retryMessageHandling(msg, retryCount + 1);
     }
   }
 } 

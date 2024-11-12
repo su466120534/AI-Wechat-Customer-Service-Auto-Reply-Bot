@@ -388,7 +388,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
             .on('login', async (user: any) => {
                 logger.info('Bot', '登录成功，开始处理登录事件', { userName: user.name() });
                 
-                // 确保关闭二维码窗口
+                // 确保���闭二维码窗口
                 try {
                     closeQRCodeWindow();
                 } catch (error) {
@@ -406,7 +406,7 @@ async function startBot(config: Config, mainWindow: BrowserWindow): Promise<stri
                     throw new Error('主窗口未初始化');
                 }
 
-                // 发送登录成功消息到渲染进程
+                // 发送登录���功消息到渲染进程
                 mainWindow.webContents.send('key-message', {
                     type: 'success',
                     message: `微信登录成功，用户：${user.name()}`
@@ -616,7 +616,7 @@ function handleDisconnect(error: Error): void {
   } else {
     mainWindow.webContents.send('log', {
       type: 'error',
-      message: '重连失败，请手动重启服务'
+      message: '重连失败，请手���重启服务'
     })
   }
 }
@@ -997,7 +997,7 @@ async function migrateWhitelistConfig() {
         // 获当前配置
         const currentConfig = ConfigManager.getConfig();
         
-        // 如果当前配置中没有白名单据，则进行迁
+        // 如果当前配置中没有白��单据，则进行迁
         if (currentConfig.contactWhitelist.length === 0 && currentConfig.roomWhitelist.length === 0) {
             logger.info('Config', '开始迁移白名单配置');
             
@@ -1034,18 +1034,75 @@ async function migrateWhitelistConfig() {
     }
 }
 
-async function callAIWithRetry(message: string, retryCount = 3) {
-    const config = ConfigManager.getConfig();
-    const aiService = new AitiwoService(config.aitiwoKey);
+// 在文件顶部添加 AI 服务相关的常量
+const AI_SERVICE_CONFIG = {
+  maxRetries: 3,
+  retryDelay: 2000,
+  timeout: 30000
+};
+
+// 修改 callAIWithRetry 函数
+async function callAIWithRetry(message: string, retryCount = 0): Promise<string> {
+  const config = ConfigManager.getConfig();
+  const aiService = new AitiwoService(config.aitiwoKey);
+  
+  try {
+    // 添加超时控制
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('AI 服务请求超时')), AI_SERVICE_CONFIG.timeout);
+    });
+
+    const responsePromise = aiService.chat(message);
+    const response = await Promise.race([responsePromise, timeoutPromise]);
     
-    try {
-        return await aiService.chat(message);
-    } catch (error) {
-        logger.error('Bot', 'AI 调用失败', error);
-        throw error;
+    return response as string;
+  } catch (error) {
+    logger.error('Aitiwo', 'AI 服务调用失败', {
+      error: error instanceof Error ? error.message : String(error),
+      retryCount,
+      message: message.slice(0, 100) // 只记录前100个字符
+    });
+
+    // 检查是否还可以重试
+    if (retryCount < AI_SERVICE_CONFIG.maxRetries) {
+      await new Promise(resolve => setTimeout(resolve, AI_SERVICE_CONFIG.retryDelay));
+      return callAIWithRetry(message, retryCount + 1);
     }
+
+    throw new AppError('AI 服务暂时不可用，请稍后重试', ErrorCode.AI_SERVICE_ERROR);
+  }
 }
 
+// 添加 AI 服务状态监控
+let aiServiceFailureCount = 0;
+const AI_SERVICE_FAILURE_THRESHOLD = 5;
+
+function monitorAiServiceStatus(error: Error) {
+  aiServiceFailureCount++;
+  
+  if (aiServiceFailureCount >= AI_SERVICE_FAILURE_THRESHOLD) {
+    logger.error('Aitiwo', 'AI 服务可能存在问题', {
+      failureCount: aiServiceFailureCount,
+      lastError: error.message
+    });
+    
+    // 通知前端
+    mainWindow?.webContents.send('key-message', {
+      type: 'error',
+      message: 'AI 服务可能存在问题，请检查配置或联系技术支持'
+    });
+    
+    // 重置计数器
+    aiServiceFailureCount = 0;
+  }
+}
+
+// 定期重置失败计数
+setInterval(() => {
+  if (aiServiceFailureCount > 0) {
+    aiServiceFailureCount = 0;
+  }
+}, 3600000); // 每小时重置一次
 
 // 添加关闭二维码窗口的函数
 function closeQRCodeWindow() {

@@ -3,8 +3,11 @@ build/
 node_modules/
 WechatEveryDay.memory-card.json
 .env
+.env.example
 test.js
 package-lock.json
 Chromium.app
 
 .DS_Store
+企业AI知识库微信客服 Setup*.exe
+企业AI知识库微信客服 Setup*.dmg

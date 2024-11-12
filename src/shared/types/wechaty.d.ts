@@ -1,3 +1,5 @@
+import { Message as WechatyMessage } from 'wechaty'
+
 declare module 'wechaty' {
   export class Wechaty {
     constructor(options?: any);
@@ -10,17 +12,23 @@ declare module 'wechaty' {
 
   export class Contact {
     name(): string;
+    say(text: string): Promise<void | Message>;
   }
 
-  export class Message {
+  export interface Message extends WechatyMessage {
     self(): boolean;
-    room(): Room | null;
     talker(): Contact;
+    room(): Room | null;
     text(): string;
+    type(): number;
+    mentionSelf(): Promise<boolean>;
+    mentionText(): Promise<string>;
+    mentionList(): Promise<Contact[]>;
   }
 
   export class Room {
     topic(): Promise<string>;
-    say(text: string): Promise<void>;
+    say(text: string): Promise<void | Message>;
+    memberAll(): Promise<Contact[]>;
   }
 } 

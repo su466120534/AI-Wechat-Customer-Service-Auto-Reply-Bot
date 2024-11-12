@@ -11,29 +11,31 @@
     "build:ts": "tsc --skipLibCheck --noEmitOnError",
     "build:renderer": "esbuild dist/renderer/index.js --bundle --outfile=dist/renderer.bundle.js --platform=browser --format=iife --external:electron --external:path --external:fs --external:util --external:log4js --external:node-schedule",
     "copy-assets": "node scripts/copy-assets.js",
-    "verify": "node scripts/verify-build.js",
+    "verify": "node scripts/verify-build.js --verbose",
     "build": "yarn clean && yarn build:ts && yarn build:renderer && yarn copy-assets && yarn verify",
     "postinstall": "electron-builder install-app-deps",
     "pack:mac": "yarn build && electron-builder --mac",
     "pack:win": "yarn build && electron-builder --win --x64",
-    "build:win": "yarn build && /Applications/Docker.app/Contents/Resources/bin/docker run --rm -v ${PWD}:/project -v ${PWD##*/}-node-modules:/project/node_modules -v ~/.electron:/root/.electron electronuserland/builder:wine /bin/bash -c \"yarn install && yarn electron-rebuild && yarn electron-builder install-app-deps && yarn electron-builder --win --x64\"",
+    "build:win": "yarn build && docker run --rm -v %cd%:/project -v %cd%-node-modules:/project/node_modules -v %USERPROFILE%/.electron:/root/.electron electronuserland/builder:wine /bin/bash -c \"yarn install && yarn electron-rebuild && yarn electron-builder install-app-deps && yarn electron-builder --win --x64\"",
+    "build:win-local": "yarn build && yarn electron-builder --win --x64",
     "rebuild": "npx @electron/rebuild -f -w better-sqlite3,sqlite3"
   },
   "dependencies": {
+    "archiver": "^5.3.2",
+    "cron": "^3.1.6",
     "electron-updater": "^6.1.7",
     "log4js": "^6.9.1",
     "node-schedule": "^2.1.1",
     "qrcode": "^1.5.3",
     "wechaty": "1.20.2",
     "wechaty-puppet": "1.20.2",
-    "wechaty-puppet-wechat4u": "1.14.14",
-    "cron": "^3.1.6",
-    "archiver": "^5.3.2"
+    "wechaty-puppet-wechat4u": "1.14.14"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",
     "@jest/globals": "^29.7.0",
     "@swc/core": "^1.9.2",
+    "@types/archiver": "^6.0.3",
     "@types/electron": "^1.6.10",
     "@types/jest": "^29.5.12",
     "@types/log4js": "^2.3.5",
@@ -42,6 +44,8 @@
     "@types/qrcode": "^1.5.5",
     "@typescript-eslint/eslint-plugin": "^5.0.0",
     "@typescript-eslint/parser": "^5.0.0",
+    "better-sqlite3": "^8.7.0",
+    "brolog": "^1.14.2",
     "cross-env": "^7.0.3",
     "electron": "^28.1.0",
     "electron-builder": "^24.9.1",
@@ -49,11 +53,13 @@
     "eslint": "^8.0.0",
     "fs-extra": "^11.1.1",
     "jest": "^29.7.0",
+    "redux": "^4.0.5",
+    "rimraf": "^6.0.1",
+    "rxjs": "^7.4.0",
     "ts-jest": "^29.1.2",
     "ts-node": "^10.9.1",
     "tsc-watch": "^6.0.4",
-    "typescript": "^5.3.3",
-    "better-sqlite3": "^8.7.0"
+    "typescript": "^5.3.3"
   },
   "build": {
     "appId": "com.aitiwo.wechat.bot",
@@ -86,7 +92,10 @@
       "icon": "assets/icon.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
@@ -95,9 +104,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/su466120534/aitiwo-wechat-bot.git"
+    "url": "https://github.com/su466120534/AI-Wechat-Customer-Service-Auto-Reply-Bot.git"
   },
-  "author": "Your Name",
+  "author": "苏江 <jimmyisagoodguy@gmail.com>",
   "license": "MIT",
   "engines": {
     "node": ">=16.0.0"
